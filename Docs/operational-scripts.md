@@ -1,84 +1,65 @@
 # Operational Scripts
 
-## Build-DefinitionsFolder.ps1
+The scripts are detailed in the [reference page](operational-scripts-reference.md) including  syntax, descriptions and parameters.
 
-This script has been replaced by `Export-AzPolicyResources.ps1`. See [Extract existing Policy Resources from an Environment](extract-existing-policy-resources.md).
+## Batch Creation of Remediation Tasks
 
-## Get-AzMissingTags.ps1
+The script `Create-AzRemediationTasks` creates remediation tasks for all non-compliant resources for EPAC environments in the `global-settings.jsonc` file.
 
-Lists missing tags based on non-compliant Resource Groups.
+This script executes all remediation tasks in a Policy as Code environment specified with parameter `PacEnvironmentSelector`. The script will interactively prompt for the value if the parameter is not supplied. The script will recurse the Management Group structure and subscriptions from the defined starting point.
 
-|Parameter | Explanation |
-|----------|-------------|
-| `PacEnvironmentSelector` | Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc`. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It contains `global-settings.jsonc`.
-| `OutputFileName` | Output file name. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER/Tags/missing-tags-results.csv` or `./Outputs/Tags/missing-tags-results.csv`. |
-| `Interactive` | Script is being run interactively and can request az login. Defaults to $false if PacEnvironmentSelector parameter provided and $true otherwise. |
+* Find all Policy assignments with potential remediation capable resources
+* Query Policy Insights for non-complaint resources
+* Start remediation task for each Policy with non-compliant resources
+* Switch parameter `-OnlyCheckManagedAssignments` includes non-compliance data only for Policy assignments owned by this Policy as Code repo.
 
-## Get-AzResourceTags.ps1
+#### Links
 
-Lists all resource tags in tenant.
+- [Remediate non-compliant resources with Azure Policy](https://learn.microsoft.com/en-us/azure/governance/policy/how-to/remediate-resources?tabs=azure-portal)
+- [Start-AzPolicyRemediation](https://learn.microsoft.com/en-us/powershell/module/az.policyinsights/start-azpolicyremediation?view=azps-10.1.0)
 
-|Parameter | Explanation |
-|----------|-------------|
-| `PacEnvironmentSelector` | Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc`. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It contains `global-settings.jsonc`.
-| `OutputFileName` | Output file name. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER/Tags/all-tags.csv` or `./Outputs/Tags/all-tags.csv`. |
-| `Interactive` | Script is being run interactively and can request az login. Defaults to $false if PacEnvironmentSelector parameter provided and $true otherwise. |
+## Policy Resources Exports
 
-## Get-AzStorageNetworkConfig.ps1
+- `Export-AzPolicyResources` exports Azure Policy resources in EPAC. It also generates documentation for the exported resources (can be suppressed with `-SuppressDocumentation`). See usage documentation in [Extract existing Policy Resources](epac-extracting-policy-resources.md).
+- `Get-AzExemptions` retrieves Policy Exemptions from an EPAC environment and saves them to files.
+- `Get-AzPolicyAliasOutputCSV` exports Policy Aliases to CSV format.
 
-Lists Storage Account network configurations.
+## Hydration Kit
 
-|Parameter | Explanation |
-|----------|-------------|
-| `PacEnvironmentSelector` | Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc`. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It contains `global-settings.jsonc`.
-| `OutputFileName` | Output file name. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER/Storage/StorageNetwork.csv` or `./Outputs/Storage/StorageNetwork.csv` |
-| `Interactive` | Script is being run interactively and can request az login. Defaults to $false if PacEnvironmentSelector parameter provided and $true otherwise. |
+The Hydration Kit is a set of scripts that can be used to deploy an EPAC environment from scratch. The scripts are documented in the [Hydration Kit](operational-scripts-hydration-kit.md) page.
 
-## Get-AzUserRoleAssignments.ps1
+## CI/CD Helpers
 
-Lists Role assignments per user.
+The scripts `Create-AzureDevOpsBug` and `Create-GitHubIssue` create a Bug or Issue when there are one or multiple failed Remediation Tasks.
 
-|Parameter | Explanation |
-|----------|-------------|
-| `PacEnvironmentSelector` | Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc`. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It contains `global-settings.jsonc`.
-| `OutputFileName` | Output file name. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER/Users/RoleAssignments.csv` or `./Outputs/Users/RoleAssignments.csv` |
-| `Interactive` | Script is being run interactively and can request az login. Defaults to $false if PacEnvironmentSelector parameter provided and $true otherwise. |
+## Documenting Policy
 
-## Get-AzPolicyAliasOutputCSV.ps1
+`Build-PolicyDocumentation` builds documentation from instructions in the `policyDocumentations` folder reading the deployed Policy Resources from the EPAC environment. It is also used to generate parameter/effect CSV files for Policy Assignment files. 
 
-Pull all policy aliases into a CSV file. This is helpful for Azure Policy development.
+See usage documentation in [Documenting Policy](operational-scripts-documenting-policy.md).
 
-|Parameter | Explanation |
-|----------|-------------|
-| `NamespaceMatch` | Use this to cut out unnecessary aliases by specifying your desired namespace. More documentation here: <https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azpolicyalias?view=azps-8.3.0> |
-| `ResourceTypeMatch` | Resource type match can also be used to filter out unnecessary aliases. More documentation here: <https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azpolicyalias?view=azps-8.3.0> |
+## Non-compliance Reports
 
-## New-EPACPolicyDefinition.ps1
+`Export-NonComplianceReports` exports non-compliance reports for EPAC environments . It outputs the reports in the `$OutputFolders/non-compliance-reports` folder.
 
-Exports a policy definition from Azure to a local file in the EPAC format. Works for both Policies and set definitionsPolicy Sets
+- `summary-by-policy.csv` contains the summary of the non-compliant resources by Policy definition. The columns contain the resource counts.
+- `summary-by-resource.csv` contains the summary of the non-compliant resources. The columns contain the number of Policies causing the non-compliance.
+- `details-by-policy.csv` contains the details of the non-compliant resources by Policy definition including the non-compliant resource ids. Assignments are combined by Policy definition.
+- `details-by-resource.csv` contains the details of the non-compliant resources sorted by Resource id. Assignments are combined by Resource id.
+- `full-details-by-assignment.csv` contains the details of the non-compliant resources sorted by Policy Assignment id.
+- `full-details-by-resource.csv` contains the details of the non-compliant resources sorted by Resource id including the Policy Assignment details.
 
-|Parameter | Required | Explanation |
-|----------|----------|-------------|
-| `PolicyDefinitionId`| Required | Resource ID in Azure for the policy you want to export - can take input from a pipeline |
-| `OutputFolder` | Optional | Output folder for the exported policy definition - default is JSON output to console |
+### Sample `summary-by-policy.csv`
 
-## New-EPACPolicyAssignmentDefinition.ps1
+| Category | Policy Name | Policy Id | Non Compliant | Unknown | Not Started | Exempt | Conflicting | Error | Assignment Ids | Group Names |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| General | Audit usage of custom RBAC roles | /providers/microsoft.authorization/policydefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5 | 9 | 0 | 0 | 0 | 0 | 0 | /providers/microsoft.management/managementgroups/pac-heinrich-dev-dev/providers/microsoft.authorization/policyassignments/dev-nist-800-53-r5,/providers/microsoft.management/managementgroups/pac-heinrich-dev-dev/providers/microsoft.authorization/policyassignments/dev-asb | azure_security_benchmark_v3.0_pa-7,nist_sp_800-53_r5_ac-6(7),nist_sp_800-53_r5_ac-2(7),nist_sp_800-53_r5_ac-6,nist_sp_800-53_r5_ac-2 |
+| Regulatory Compliance | Control use of portable storage devices | /providers/microsoft.authorization/policydefinitions/0a8a1a7d-16d3-4d8e-9f2c-6b8d9e1c7c1d | 0 | 0 | 0 | 0 | 0 | 0 | /providers/microsoft.management/managementgroups/pac-heinrich-dev-dev/providers/microsoft.authorization/policyassignments/dev-nist-800-53-r5,/providers/microsoft.management/managementgroups/pac-heinrich-dev-dev/providers/microsoft.authorization/policyassignments/dev-asb | azure_security_benchmark_v3.0_pa-7,nist_sp_800-53_r5_ac-6(7),nist_sp_800-53_r5_ac-2(7),nist_sp_800-53_r5_ac-6,nist_sp_800-53_r5_ac-2 |
 
-Exports a policy assignment from Azure to a local file in the EPAC format. Provides a base template only - you may have to manipulate the file to fit in to your current assignment structure
+### Sample `summary-by-resource.csv`
 
-|Parameter | Required | Explanation |
-|----------|----------|-------------|
-| `PolicyAssignmentId`| Required | Resource ID in Azure for the policy assignment you want to export|
-| `OutputFolder` | Optional | Output folder for the exported policy assignment - - default is JSON output to console |
+| Resource Id | Subscription Id | Subscription Name | Resource Group | Resource Type | Resource Name | Resource Qualifier | Non Compliant | Unknown | Not Started | Exempt | Conflicting | Error |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| /subscriptions/******************************** | ******************************** | PAC-DEV-001 |  | subscriptions |  |  | 25 | 481 | 0 | 0 | 0 | 0 |
+| /subscriptions/********************************/providers/microsoft.authorization/roledefinitions/0b00bc79-2207-410c-b9d5-d5d182ad514f | ******************************** | PAC-DEV-001 |  | microsoft.authorization/roledefinitions | 0b00bc79-2207-410c-b9d5-d5d182ad514f |  | 0 | 0 | 0 | 0 | 0 | 0 |
 
-## New-EPACDefinitionFolder.ps1
-
-Creates a definitions folder with the correct folder structure and blank global settings file.
-
-|Parameter | Explanation |
-|----------|-------------|
-| `DefinitionsRootFolder`| Folder name for definitions (default is `Definitions`)|

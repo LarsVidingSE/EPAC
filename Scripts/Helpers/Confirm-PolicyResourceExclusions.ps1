@@ -3,50 +3,48 @@ function Confirm-PolicyResourceExclusions {
     param (
         $TestId,
         $ResourceId,
-        $PolicyResource,
         $ScopeTable,
-        $IncludeResourceGroups,
-        $ExcludedScopes,
-        $ExcludedIds,
-        $PolicyResourceTable
+        $ExcludedScopesTable,
+        $ExcludedIds = @(),
+        $PolicyResourceTable = $null
     )
 
-    $resourceIdParts = Split-AzPolicyResourceId -Id $TestId
-    $scope = $resourceIdParts.scope
-    $scopeType = $resourceIdParts.scopeType
+    $testResourceIdParts = Split-AzPolicyResourceId -Id $TestId
+    $scope = $testResourceIdParts.scope
+    $scopeType = $testResourceIdParts.scopeType
+
+    $resourceIdParts = $testResourceIdParts
+    if ($TestId -ne $ResourceId) {
+        $resourceIdParts = Split-AzPolicyResourceId -Id $ResourceId
+    }
 
     if ($scopeType -eq "builtin") {
         return $true, $resourceIdParts
     }
-    if (!$ScopeTable.ContainsKey($scope)) {
-        $PolicyResourceTable.counters.unMangedScope += 1
-        $null = $PolicyResourceTable.excluded.Add($ResourceId, $PolicyResource)
-        return $false, $resourceIdParts
-    }
-    $scopeEntry = $ScopeTable.$scope
-    $parentList = $scopeEntry.parentList
-    if ($null -eq $parentList) {
-        Write-Error "Code bug parentList is $null $($scopeEntry | ConvertTo-Json -Depth 100 -Compress)"
-    }
-    if (!$IncludeResourceGroups -and $scopeType -eq "resourceGroups") {
-        # Write-Information "    Exclude(resourceGroup) $($ResourceId)"
-        $PolicyResourceTable.counters.excludedScopes += 1
-        $null = $PolicyResourceTable.excluded.Add($ResourceId, $PolicyResource)
-        return $false, $resourceIdParts
-    }
-    foreach ($testScope in $ExcludedScopes) {
-        if ($scope -eq $testScope -or $parentList.ContainsKey($testScope)) {
-            # Write-Information "Exclude(scope,$testScope) $($ResourceId)"
-            $PolicyResourceTable.counters.excludedScopes += 1
-            $null = $PolicyResourceTable.excluded.Add($ResourceId, $PolicyResource)
-            return $false, $resourceIdParts
+    if (-not $ScopeTable.ContainsKey($scope)) {
+        Write-Verbose "Unmanged scope '$scope', resource '$($ResourceId)'"
+        if ($null -ne $PolicyResourceTable) {
+            $PolicyResourceTable.counters.unmanagedScopes += 1
         }
+        return $false, $resourceIdParts
+    }
+    if ($ExcludedScopesTable.ContainsKey($scope)) {
+        Write-Verbose "Excluded scope '$scope', resource '$($ResourceId)'"
+        if ($null -ne $PolicyResourceTable) {
+            $PolicyResourceTable.counters.excluded += 1
+        }
+        if ($resourceIdParts.kind -eq "policyAssignments") {
+            $excludedScope = $ExcludedScopesTable.$scope
+            $null = $null
+        }
+        return $false, $resourceIdParts
     }
     foreach ($testExcludedId in $ExcludedIds) {
         if ($TestId -like $testExcludedId) {
-            # Write-Information "Exclude(id,$testExcludedId) $($ResourceId)"
-            $PolicyResourceTable.counters.excluded += 1
-            $null = $PolicyResourceTable.excluded.Add($ResourceId, $PolicyResource)
+            Write-Verbose "Excluded id '$($ResourceId)'"
+            if ($null -ne $PolicyResourceTable) {
+                $PolicyResourceTable.counters.excluded += 1
+            }
             return $false, $resourceIdParts
         }
     }

@@ -10,111 +10,137 @@ function Confirm-ObjectValueEqualityDeep {
 
 
     if ($Object1 -eq $Object2) {
+        # $Object1 and $Object2 are equal (includes both $null)
         return $true
     }
-    else {
+    elseif ($null -eq $Object1 -or $null -eq $Object2) {
+        # $Object1 and $Object2 are not equal, but one of them is $null
         if ($null -eq $Object1) {
-            # $Object2 is not $null (always true); swap object 1 and object2, so that $Object1 is always not $null
-            $tempObject = $Object2
-            $Object2 = $Object1
-            $Object1 = $tempObject
+            # $Object1 is $null, swap $Object1 and $Object2 to ensure that Object1 (the old Object2) is not $null and Object2 (the old Object1) is $null (setting it to $null is ommited because it is not used in the subsequent code)
+            $Object1 = $Object2
+            $Object2 = $null
         }
-        $type1 = $Object1.GetType()
-        $typeName1 = $type1.Name
-        $type2 = $null
-        $typeName2 = "null"
-        if ($null -ne $Object2) {
-            $type2 = $Object2.GetType()
-            $typeName2 = $type2.Name
+        if ($Object1 -is [System.Collections.ICollection]) {
+            # $Object1 is an ICollection, if it has 0 elements treat it as $null and therefore equal to Object2
+            # Arrays, ArrayList, Hashtables and other collections are all ICollection
+            return $Object1.Count -eq 0
         }
-        if ($typeName1 -in @( "Object[]", "ArrayList") -or $typeName2 -in @( "Object[]", "ArrayList")) {
-            if ($null -eq $Object2) {
-                return $Object1.Count -eq 0
+        elseif ($Object1 -is [string]) {
+            # $Object1 is a string, if it is empty or only conatins whitespace treat it as $null and therefore equal to Object2
+            return [string]::IsNullOrWhiteSpace($Object1)
+        }
+        else {
+            # $Object1 has something else and not null and therefore not equal to Object2
+            return $false
+        }
+    }
+    else {
+        if ($Object1 -is [System.Collections.IList] -or $Object2 -is [System.Collections.Ilist]) {
+            # $Object1 or $Object2 is an array or ArrayList
+            if ($Object1 -isnot [System.Collections.Ilist]) {
+                $Object1 = @($Object1)
+            }
+            elseif ($Object2 -isnot [System.Collections.Ilist]) {
+                $Object2 = @($Object2)
+            }
+            if ($Object1.Count -ne $Object2.Count) {
+                return $false
             }
             else {
-                if ($typeName1 -notin @( "Object[]", "ArrayList")) {
-                    # convert single element $Object1 into an array
-                    $Object1 = @( $Object1 )
-                }
-                if ($typeName2 -notin @( "Object[]", "ArrayList")) {
-                    # convert single element $Object2 into an array
-                    $Object2 = @( $Object2 )
-                }
-                # both objects are now of type array or ArrayList
-                if ($Object1.Count -ne $Object2.Count) {
-                    return $false
-                }
-                else {
-                    # iterate and recurse
-                    $object2List = [System.Collections.ArrayList]::new($Object2)
-                    foreach ($item1 in $Object1) {
-                        $foundMatch = $false
-                        for ($i = 0; $i -lt $object2List.Count; $i++) {
-                            $item2 = $object2List[$i]
-                            if ($item1 -eq $item2 -or (Confirm-ObjectValueEqualityDeep $item1 $item2)) {
-                                $foundMatch = $true
-                                $null = $object2List.RemoveAt($i)
-                                break
-                            }
-                        }
-                        if (!$foundMatch) {
-                            return $false
+                # iterate and recurse
+                $object2List = [System.Collections.ArrayList]::new($Object2)
+                foreach ($item1 in $Object1) {
+                    # iterate through Object1 and find a match in Object2
+                    $foundMatch = $false
+                    for ($i = 0; $i -lt $object2List.Count; $i++) {
+                        $item2 = $object2List[$i]
+                        if ($item1 -eq $item2 -or (Confirm-ObjectValueEqualityDeep $item1 $item2)) {
+                            # if either the array item values are equal or a deep inspection shows equal, continue to the next item by:
+                            #   1. Setting $foundMatch to $true
+                            #   2. Remove the matching item from the Object2 list, therefore reducing the computing complexity of the next iteration
+                            #   3. Breaking out of the inner "for" loop 
+                            $foundMatch = $true
+                            $null = $object2List.RemoveAt($i)
+                            break
                         }
                     }
-                    return $true
+                    if (!$foundMatch) {
+                        # no item in Object2 matches the current item in Object1, return false
+                        return $false
+                    }
                 }
+                # every item in Object1 has a match in Object2, return true
+                return $true
             }
         }
-        elseif ($typeName1 -eq "DateTime" -or $typeName1 -eq "DateTime") {
+        elseif ($Object1 -is [datetime] -or $Object2 -is [datetime]) {
+            # $Object1 or $Object2 is a DateTime
+            # Note: this must be done prior to the next test, since [DateTime] is a [System.ValueType]
             $dateString1 = $Object1
+            $dateString2 = $Object2
             if ($typeName1 -eq "DateTime") {
                 $dateString1 = $Object1.ToString("yyyy-MM-dd")
             }
-            $dateString2 = $Object2
             if ($typeName2 -eq "DateTime") {
                 $dateString2 = $Object2.ToString("yyyy-MM-dd")
             }
             return $dateString1 -eq $dateString2
         }
-        elseif ($typeName1 -eq "String" -or $typeName2 -eq "String") {
-            if ($typeName1 -ne "String") {
-                $Object1 = $Object1.ToString()
-            }
-            if ($null -eq $Object2) {
-                $Object2 = ""
-            }
-            elseif ($typeName2 -ne "String") {
-                $Object2 = $Object2.ToString()
-            }
-            return $Object1 -eq $Object2
-        }
-        elseif ($Object1 -is [System.ValueType] -or $Object2 -is [System.ValueType]) {
+        elseif ($Object1 -is [string] -or $Object2 -is [string] -or $Object1 -is [System.ValueType] -or $Object2 -is [System.ValueType]) {
+            # Will have caused $true by the first "if" statement if they match
+            # Note: this must be done prior to the next test, since [string and [System.ValueType] are both [PSCustomObject] (PSCustomObject is PowerShells version of [object])
             return $false
         }
-        elseif (($typeName1 -in @( "Hashtable", "OrderedDictionary", "OrderedHashtable" ) -or $Object1 -is [PSCustomObject]) `
-                -and ($typeName2 -in @( "null", "Hashtable", "OrderedDictionary", "OrderedHashtable" ) -or $Object2 -is [PSCustomObject])) {
+        elseif (($Object1 -is [System.Collections.IDictionary] -or $Object1 -is [psobject]) `
+                -and ($Object2 -is [System.Collections.IDictionary] -or $Object2 -is [psobject])) {
 
-            if ($Object1 -is [PSCustomObject]) {
-                $Object1 = Get-DeepClone $Object1 -AsHashTable
+            # normalize Object1 and Object2 keys or property names
+            $normalizedKeys1 = @()
+            $normalizedKeys2 = @()
+            if ($Object1 -is [System.Collections.IDictionary]) {
+                $normalizedKeys1 = $Object1.Keys
+            }
+            else {
+                $normalizedKeys1 = $Object1.PSObject.Properties.Name
+            }
+            if ($Object2 -is [System.Collections.IDictionary]) {
+                $normalizedKeys2 = $Object2.Keys
+            }
+            else {
+                $normalizedKeys2 = $Object2.PSObject.Properties.Name
+            }
+            $key1IsNotArray = $normalizedKeys1 -isnot [array]
+            $key2IsNotArray = $normalizedKeys2 -isnot [array]
+            if ($key1IsNotArray) {
+                $normalizedKeys1 = @($normalizedKeys1)
+            }
+            if ($key2IsNotArray) {
+                $normalizedKeys2 = @($normalizedKeys2)
+            }
+            $allKeys = $normalizedKeys1 + $normalizedKeys2
+            $uniqueKeys = $allKeys | Sort-Object -Unique
+            if ($null -eq $uniqueKeys) {
+                # if there are no keys, return true
+                return $true
+            }
+            if ($uniqueKeys -isnot [array]) {
+                $uniqueKeys = @($uniqueKeys)
             }
 
-            if ($null -eq $Object2) {
-                $Object2 = @{}
-            }
-            elseif ($Object2 -is [PSCustomObject]) {
-                $Object2 = Get-DeepClone $Object2 -AsHashTable
-            }
-
-            # walk both sets of keys
-            $uniqueKeys = @(@($Object1.Keys) + @($Object2.Keys) | Sort-Object -Unique )
+            # iterate and recurse
             foreach ($key in $uniqueKeys) {
-                #recurse
                 $item1 = $Object1.$key
                 $item2 = $Object2.$key
-                if ($item1 -ne $item2 -and !(Confirm-ObjectValueEqualityDeep $item1 $item2)) {
+
+                if ($item1 -eq $item2 -or (Confirm-ObjectValueEqualityDeep $item1 $item2)) {
+                    # if either the property values are equal or a deep inspection shows equal, continue to the next property
+                }
+                else {
+                    # if the property values are not equal and a deep inspection does not show equal, return false
                     return $false
                 }
             }
+            # every entry in the collection has the same value, return true
             return $true
         }
         else {

@@ -17,6 +17,13 @@
 .PARAMETER SuppressConfirmation
     Suppresses prompt for confirmation to delete existing file in interactive mode
 
+.PARAMETER IncludeManualPolicies
+    Include Policies with effect Manual. Default: do not include Polcies with effect Manual.
+
+.PARAMETER VirtualCores
+    Number of virtual cores to use for the operation. Default is 4.
+
+
 .EXAMPLE
     Build-PolicyDocumentation.ps1 -DefinitionsRootFolder "C:\PAC\Definitions" -OutputFolder "C:\PAC\Output" -Interactive
     Builds documentation from instructions in policyDocumentations folder reading the delployed Policy Resources from the EPAC envioronment.
@@ -49,7 +56,13 @@ param (
     [bool] $Interactive = $true,
 
     [Parameter(Mandatory = $false, HelpMessage = "Suppresses prompt for confirmation of each file in interactive mode")]
-    [switch] $SuppressConfirmation
+    [switch] $SuppressConfirmation,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Include Policies with effect Manual. Default: do not include Polcies with effect Manual.")]
+    [switch] $IncludeManualPolicies,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Number of virtual cores to use for the operation. Default is 4.")]
+    [Int16] $VirtualCores = 4
 )
 
 # Dot Source Helper Scripts
@@ -61,11 +74,20 @@ $InformationPreference = 'Continue'
 $globalSettings = Get-GlobalSettings -DefinitionsRootFolder $DefinitionsRootFolder -OutputFolder $OutputFolder
 $definitionsFolder = $globalSettings.policyDocumentationsFolder
 $pacEnvironments = $globalSettings.pacEnvironments
-$outputPath = "$($globalSettings.outputFolder)/PolicyDocumentation"
+$outputPath = "$($globalSettings.outputFolder)/policy-documentation"
 if (-not (Test-Path $outputPath)) {
     New-Item $outputPath -Force -ItemType directory
 }
 
+# Telemetry
+if ($globalSettings.telemetryEnabled) {
+    Write-Information "Telemetry is enabled"
+    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-2dc29bae-2448-4d7f-b911-418421e83900") 
+}
+else {
+    Write-Information "Telemetry is disabled"
+}
+Write-Information ""
 
 # Caching information to optimize different outputs
 $cachedPolicyResourceDetails = @{}
@@ -129,11 +151,13 @@ foreach ($file in $files) {
     if ($processThisFile) {
         Write-Information "Reading and Processing '$($file.Name)'"
         $json = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
-        if (-not (Test-Json $json)) {
-            Write-Error "The JSON file '$($file.Name)' is not valid." -ErrorAction Stop
+        try {
+            $documentationSpec = $json | ConvertFrom-Json
         }
-        $documentationSpec = $json | ConvertFrom-Json
-
+        catch {
+            Write-Error "Assignment JSON file '$($file.Name)' is not valid." -ErrorAction Stop
+        }
+        
         if (-not ($documentationSpec.documentAssignments -or $documentationSpec.documentPolicySets)) {
             Write-Error "JSON document must contain 'documentAssignments' and/or 'documentPolicySets' element(s)." -ErrorAction Stop
         }
@@ -164,26 +188,9 @@ foreach ($file in $files) {
                 if (-not $policySets -or $policySets.Count -eq 0) {
                     Write-Error "documentPolicySet entry does not specify required policySets array entry." -ErrorAction Stop
                 }
-
-                $itemArrayList = [System.Collections.ArrayList]::new()
-                if ($null -ne $policySets -and $policySets.Count -gt 0) {
-                    foreach ($policySet in $policySets) {
-                        $itemEntry = @{
-                            shortName    = $policySet.shortName
-                            itemId       = $policySet.id
-                            policySetId  = $policySet.id
-                            assignmentId = $null
-                        }
-                        $null = $itemArrayList.Add($itemEntry)
-                    }
-                }
-                else {
-                    Write-Error "documentPolicySet entry does not specify an policySets array or policySets array is empty" -ErrorAction Stop
-                }
-                $itemList = $itemArrayList.ToArray()
-
                 $environmentColumnsInCsv = $documentPolicySetEntry.environmentColumnsInCsv
 
+                # Load pacEnvironment if not already loaded
                 if (-not $cachedPolicyResourceDetails.ContainsKey($pacEnvironmentSelector)) {
                     if ($currentPacEnvironmentSelector -ne $pacEnvironmentSelector) {
                         $currentPacEnvironmentSelector = $pacEnvironmentSelector
@@ -191,18 +198,49 @@ foreach ($file in $files) {
                             -PacEnvironmentSelector $currentPacEnvironmentSelector `
                             -PacEnvironments $pacEnvironments `
                             -Interactive $Interactive
-
                     }
                 }
 
                 # Retrieve Policies and PolicySets for current pacEnvironment from cache or from Azure
-                $policyResourceDetails = Get-PolicyResourceDetails `
+                $policyResourceDetails = Get-AzPolicyResourcesDetails `
                     -PacEnvironmentSelector $pacEnvironmentSelector `
                     -PacEnvironment $pacEnvironment `
-                    -CachedPolicyResourceDetails $cachedPolicyResourceDetails
+                    -CachedPolicyResourceDetails $cachedPolicyResourceDetails `
+                    -VirtualCores $VirtualCores
                 $policySetDetails = $policyResourceDetails.policySets
 
-                $flatPolicyList = Convert-PolicySetsToFlatList `
+                # Calculate itemList
+                $itemArrayList = [System.Collections.ArrayList]::new()
+                if ($null -ne $policySets -and $policySets.Count -gt 0) {
+                    foreach ($policySet in $policySets) {
+                        $id = $policySet.id
+                        $name = $policySet.name
+                        if ($null -eq $id -xor $null -eq $name) {
+                            $id = Confirm-PolicySetDefinitionUsedExists `
+                                -Id $id `
+                                -Name $name `
+                                -PolicyDefinitionsScopes $PacEnvironment.policyDefinitionsScopes `
+                                -AllPolicySetDefinitions $policySetDetails
+                        }
+                        else {
+                            Write-Error "documentPolicySet:policySet entry must contain a name or an id field and not both" -ErrorAction Stop
+                        }
+                        $itemEntry = @{
+                            shortName    = $policySet.shortName
+                            itemId       = $id
+                            policySetId  = $id
+                            assignmentId = $null
+                        }
+                        $null = $itemArrayList.Add($itemEntry)
+                    }
+                }
+                else {
+                    Write-Error "documentPolicySet entry does not specify a policySets array or policySets array is empty" -ErrorAction Stop
+                }
+                $itemList = $itemArrayList.ToArray()
+
+                # flatten structure and reconcile most restrictive effect for each policy
+                $flatPolicyList = Convert-PolicyResourcesDetailsToFlatList `
                     -ItemList $itemList `
                     -Details $policySetDetails
 
@@ -215,7 +253,8 @@ foreach ($file in $files) {
                     -ItemList $itemList `
                     -EnvironmentColumnsInCsv $environmentColumnsInCsv `
                     -PolicySetDetails $policySetDetails `
-                    -FlatPolicyList $flatPolicyList
+                    -FlatPolicyList $flatPolicyList `
+                    -IncludeManualPolicies:$IncludeManualPolicies
             }
         }
 
@@ -241,22 +280,23 @@ foreach ($file in $files) {
                 }
 
                 # Retrieve Policies and PolicySets for current pacEnvironment from cache or from Azure
-                $policyResourceDetails = Get-PolicyResourceDetails `
+                $policyResourceDetails = Get-AzPolicyResourcesDetails `
                     -PacEnvironmentSelector $currentPacEnvironmentSelector `
                     -PacEnvironment $pacEnvironment `
-                    -CachedPolicyResourceDetails $cachedPolicyResourceDetails
+                    -CachedPolicyResourceDetails $cachedPolicyResourceDetails `
+                    -VirtualCores $VirtualCores
 
                 # Retrieve assignments and process information or retrieve from cache is assignment previously processed
                 $assignmentArray = $environmentCategoryEntry.representativeAssignments
 
-                $itemList, $assignmentsDetails = Get-AssignmentsDetails `
+                $itemList, $assignmentsDetails = Get-PolicyAssignmentsDetails `
                     -PacEnvironmentSelector $currentPacEnvironmentSelector `
                     -AssignmentArray $assignmentArray `
                     -PolicyResourceDetails $policyResourceDetails `
                     -CachedAssignmentsDetails $cachedAssignmentsDetails
 
                 # Flatten Policy lists in Assignments and reconcile the most restrictive effect for each Policy
-                $flatPolicyList = Convert-PolicySetsToFlatList `
+                $flatPolicyList = Convert-PolicyResourcesDetailsToFlatList `
                     -ItemList $itemList `
                     -Details $assignmentsDetails
 
@@ -282,7 +322,13 @@ foreach ($file in $files) {
                     -OutputPath $outputPath `
                     -WindowsNewLineCells:$WindowsNewLineCells `
                     -DocumentationSpecification $documentationSpecification `
-                    -AssignmentsByEnvironment $assignmentsByEnvironment
+                    -AssignmentsByEnvironment $assignmentsByEnvironment `
+                    -IncludeManualPolicies:$IncludeManualPolicies
+                # Out-PolicyAssignmentDocumentationToFile `
+                #     -OutputPath $outputPath `
+                #     -WindowsNewLineCells:$true `
+                #     -DocumentationSpecification $documentationSpecification `
+                #     -AssignmentsByEnvironment $assignmentsByEnvironment
             }
         }
 

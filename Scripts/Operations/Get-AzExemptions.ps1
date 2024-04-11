@@ -17,6 +17,9 @@
 .PARAMETER FileExtension
     File extension type for the output files. Valid values are json and jsonc. Defaults to json.
 
+.PARAMETER ActiveExemptionsOnly
+    Set to true to only generate files for active (not expired and not orphaned) exemptions. Defaults to false.
+
 .EXAMPLE
     .\Get-AzExemptions.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\Src\Definitions" -OutputFolder "C:\Src\Outputs" -Interactive $true -FileExtension "jsonc"
     Retrieves Policy Exemptions from an EPAC environment and saves them to files.
@@ -44,7 +47,10 @@ param(
 
     [ValidateSet("json", "jsonc")]
     [Parameter(Mandatory = $false, HelpMessage = "File extension type for the output files. Defaults to '.jsonc'.")]
-    [string] $FileExtension = "json"
+    [string] $FileExtension = "json",
+
+    [Parameter(Mandatory = $false, HelpMessage = "Set to true to only generate files for active (not expired and not orphaned) exemptions. Defaults to false.")]
+    [switch] $ActiveExemptionsOnly
 )
 
 # Dot Source Helper Scripts
@@ -55,16 +61,25 @@ $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRoot
 $null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive
 $policyExemptionsFolder = "$($pacEnvironment.outputFolder)/policyExemptions"
 
-$scopeTable = Get-AzScopeTree -PacEnvironment $pacEnvironment
+# Telemetry
+if ($pacEnvironment.telemetryEnabled) {
+    Write-Information "Telemetry is enabled"
+    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-3f02e7d5-1cf5-490a-a95c-3d49f0673093") 
+}
+else {
+    Write-Information "Telemetry is disabled"
+}
+Write-Information ""
+
+$scopeTable = Build-ScopeTableForDeploymentRootScope -PacEnvironment $pacEnvironment
 $deployedPolicyResources = Get-AzPolicyResources -PacEnvironment $pacEnvironment -ScopeTable $scopeTable -SkipRoleAssignments
 $exemptions = $deployedPolicyResources.policyExemptions.managed
-$assignments = $deployedPolicyResources.policyassignments.managed
 
 Out-PolicyExemptions `
+    -PacEnvironment $pacEnvironment `
     -Exemptions $exemptions `
-    -Assignments $assignments `
     -PolicyExemptionsFolder $policyExemptionsFolder `
     -OutputJson `
     -OutputCsv `
-    -ExemptionOutputType "*" `
-    -FileExtension $FileExtension
+    -FileExtension $FileExtension `
+    -ActiveExemptionsOnly:$ActiveExemptionsOnly

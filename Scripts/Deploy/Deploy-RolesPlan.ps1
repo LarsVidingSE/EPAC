@@ -58,12 +58,22 @@ $InformationPreference = "Continue"
 $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRootFolder $DefinitionsRootFolder -InputFolder $InputFolder  -Interactive $Interactive
 $null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive
 
+# Telemetry
+if ($pacEnvironment.telemetryEnabled) {
+    Write-Information "Telemetry is enabled"
+    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c") 
+}
+else {
+    Write-Information "Telemetry is disabled"
+}
+Write-Information ""
+
 $planFile = $pacEnvironment.rolesPlanInputFile
 $plan = Get-DeploymentPlan -PlanFile $planFile -AsHashTable
 
 if ($null -eq $plan) {
     Write-Warning "***************************************************************************************************"
-    Write-Warning "Plan does not exist, skip Role assignments deployment."
+    Write-Warning "Plan file $planFile does not exist, skip Role assignments deployment."
     Write-Warning "***************************************************************************************************"
     Write-Warning ""
 }
@@ -73,18 +83,24 @@ else {
     Write-Information "Deploy Role assignments from plan in file '$planFile'"
     Write-Information "Plan created on $($plan.createdOn)."
     Write-Information "***************************************************************************************************"
+    Write-Information ""
 
-    $removedRoleAssignments = $plan.roleAssignments.removed
     $addedRoleAssignments = $plan.roleAssignments.added
+    $updatedRoleAssignments = $plan.roleAssignments.updated 
+    $removedRoleAssignments = $plan.roleAssignments.removed
     if ($removedRoleAssignments.psbase.Count -gt 0) {
         Write-Information "==================================================================================================="
         Write-Information "Remove ($($removedRoleAssignments.psbase.Count)) obsolete Role assignments"
         Write-Information "---------------------------------------------------------------------------------------------------"
-        $splatTransform = "principalId/ObjectId scope/Scope roleDefinitionId/RoleDefinitionId"
         foreach ($roleAssignment in $removedRoleAssignments) {
-            Write-Information "$($roleAssignment.displayName): $($roleAssignment.roleDisplayName)($($roleAssignment.roleDefinitionId)) at $($roleAssignment.scope)"
-            $splat = Get-FilteredHashTable $roleAssignment -SplatTransform $splatTransform
-            $null = Remove-AzRoleAssignment @splat -WarningAction SilentlyContinue
+            Write-Information "PrincipalId $($roleAssignment.principalId), role $($roleAssignment.roleDisplayName)($($roleAssignment.roleDefinitionId)) at $($roleAssignment.scope)"
+            if (!$roleAssignment.crossTenant) {
+                $null = Remove-AzRoleAssignmentRestMethod -RoleAssignmentId $roleAssignment.id -ApiVersion $pacEnvironment.apiVersions.roleAssignments
+            }
+            else {
+                $null = Remove-AzRoleAssignmentRestMethod -RoleAssignmentId $roleAssignment.id -TenantId $pacEnvironment.managingTenantId -ApiVersion $pacEnvironment.apiVersions.roleAssignments
+            }
+
         }
         Write-Information ""
     }
@@ -93,45 +109,54 @@ else {
         Write-Information "==================================================================================================="
         Write-Information "Add ($($addedRoleAssignments.psbase.Count)) new Role assignments"
         Write-Information "---------------------------------------------------------------------------------------------------"
-        $retriesLimit = 4
-        $splatTransform = "principalId/ObjectId objectType/ObjectType scope/Scope roleDefinitionId/RoleDefinitionId"
-        $identitiesByAssignmentId = @{}
+
+        # Get identities for policy assignments from plan or by calling the REST API to retrieve the Policy Assignment
+        $assignmentById = @{}
         foreach ($roleAssignment in $addedRoleAssignments) {
-            $principalId = $roleAssignment.principalId
+            $principalId = $roleAssignment.properties.principalId
+            $policyAssignmentId = $roleAssignment.assignmentId
             if ($null -eq $principalId) {
-                $policyAssignmentId = $roleAssignment.assignmentId
                 $identity = $null
-                if ($identitiesByAssignmentId.ContainsKey($policyAssignmentId)) {
-                    $identity = $identitiesByAssignmentId.$policyAssignmentId
+                $principalId = ""
+                if ($assignmentById.ContainsKey($policyAssignmentId)) {
+                    $principalId = $assignmentById[$policyAssignmentId]
                 }
                 else {
-                    $policyAssignment = Get-AzPolicyAssignment -Id $roleAssignment.assignmentId -WarningAction SilentlyContinue
-                    $identity = $policyAssignment.Identity
-                    $null = $identitiesByAssignmentId.Add($policyAssignmentId, $identity)
-                }
-                $principalId = $identity.PrincipalId
-                $roleAssignment.principalId = $principalId
-            }
-            Write-Information "$($policyAssignment.Properties.displayName): $($roleAssignment.roleDisplayName)($($roleAssignment.roleDefinitionId)) at $($roleAssignment.scope)"
-            $splat = Get-FilteredHashTable $roleAssignment -SplatTransform $splatTransform
-            if (Get-AzRoleAssignment -Scope $splat.Scope -ObjectId $splat.ObjectId -RoleDefinitionId $splat.RoleDefinitionId) {
-                Write-Information "Role assignment already exists"
-            }
-            else {
-                while ($retries -le $retriesLimit) {
-
-                    $result = New-AzRoleAssignment @splat -WarningAction SilentlyContinue
-                    if ($null -ne $result) {
-                        break
+                    $policyAssignment = Get-AzPolicyAssignmentRestMethod -AssignmentId $policyAssignmentId -ApiVersion $pacEnvironment.apiVersions.policyAssignments
+                    $identity = $policyAssignment.identity
+                    if ($identity -and $identity.type -ne "None") {
+                        $principalId = ""
+                        if ($identity.type -eq "SystemAssigned") {
+                            $principalId = $identity.principalId
+                        }
+                        else {
+                            $userAssignedIdentityId = $identity.userAssignedIdentities.PSObject.Properties.Name
+                            $principalId = $identity.userAssignedIdentities.$userAssignedIdentityId.principalId
+                        }
                     }
                     else {
-                        Start-Sleep -Seconds 10
-                        $retries++
+                        Write-Error "Identity not found for assignment '$($policyAssignmentId)'" -ErrorAction Stop
                     }
+                    $null = $assignmentById.Add($policyAssignmentId, $principalId)
                 }
+                $roleAssignment.properties.principalId = $principalId
             }
-            
+            elseif (-not $assignmentById.ContainsKey($policyAssignmentId)) {
+                $null = $assignmentById.Add($policyAssignmentId, $principalId)
+            }
+            Set-AzRoleAssignmentRestMethod -RoleAssignment $roleAssignment -ApiVersion $pacEnvironment.apiVersions.roleAssignments
         }
+        Write-Information ""
     }
-    Write-Information ""
+    if ($updatedRoleAssignments.psbase.Count -gt 0) {
+        Write-Information "==================================================================================================="
+        Write-Information "Update ($($updatedRoleAssignments.psbase.Count)) Role assignments"
+        Write-Information "---------------------------------------------------------------------------------------------------"
+
+        # Get identities for policy assignments from plan or by calling the REST API to retrieve the Policy Assignment
+        foreach ($roleAssignment in $updatedRoleAssignments) {
+            Set-AzRoleAssignmentRestMethod -RoleAssignment $roleAssignment -ApiVersion $pacEnvironment.apiVersions.roleAssignments
+        }
+        Write-Information ""
+    }
 }

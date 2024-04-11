@@ -1,5 +1,5 @@
 {
-    "$schema": "http://json-schema.org/draft-04/schema#",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
         "exemptions": {
@@ -29,25 +29,64 @@
                         "policyAssignmentId": {
                             "type": "string"
                         },
+                        "policyDefinitionReferenceIds": {
+                            "type": "array"
+                        },
+                        "policyId": {
+                            "type": "string"
+                        },
+                        "policyName": {
+                            "type": "string"
+                        },
+                        "policySetId": {
+                            "type": "string"
+                        },
+                        "policySetName": {
+                            "type": "string"
+                        },
+                        "resourceSelectors": {
+                            "type": "array"
+                        },
+                        "assignmentScopeValidation": {
+                            "type": "string"
+                        },
                         "metadata": {
-                            "type": "object",
-                            "properties": {
-                                "stuff": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": [
-                                "stuff"
-                            ]
+                            "type": "object"
                         }
                     },
                     "additionalProperties": false,
+                    "oneOf": [
+                        {
+                            "required": [
+                                "policyAssignmentId"
+                            ]
+                        },
+                        {
+                            "required": [
+                                "policyId"
+                            ]
+                        },
+                        {
+                            "required": [
+                                "policyName"
+                            ]
+                        },
+                        {
+                            "required": [
+                                "policySetId"
+                            ]
+                        },
+                        {
+                            "required": [
+                                "policySetName"
+                            ]
+                        }
+                    ],
                     "required": [
                         "name",
                         "displayName",
                         "exemptionCategory",
-                        "scope",
-                        "policyAssignmentId"
+                        "scope"
                     ]
                 }
             ]

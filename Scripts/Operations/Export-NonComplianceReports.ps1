@@ -33,9 +33,9 @@ Filter by Policy Assignment names (array) or ids (array).
 Filter by Policy Effect (array).
 
 .PARAMETER ExcludeManualPolicyEffect
-Switch parmeter to filter out Policy Effect Manual
+Switch parameter to filter out Policy Effect Manual
 
-.PARAMETER RemmediationOnly
+.PARAMETER RemediationOnly
 Filter by Policy Effect "deployifnotexists" and "modify" and compliance status "NonCompliant"
 
 .EXAMPLE
@@ -99,11 +99,11 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter by Policy Effect")]
     [string[]] $PolicyEffectFilter = $null,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Switch parmeter to filter out Policy Effect Manual")]
+    [Parameter(Mandatory = $false, HelpMessage = "Switch parameter to filter out Policy Effect Manual")]
     [switch] $ExcludeManualPolicyEffect,
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter by Policy Effect `"deployifnotexists`" and `"modify`" and compliance status `"NonCompliant`"")]
-    [switch] $RemmediationOnly
+    [switch] $RemediationOnly
 )
 
 # Dot Source Helper Scripts
@@ -116,7 +116,7 @@ $policySetDefinitionFilter = $PolicySetDefinitionFilter
 $policyAssignmentFilter = $PolicyAssignmentFilter
 $policyEffectFilter = $PolicyEffectFilter
 $excludeManualPolicyEffect = $ExcludeManualPolicyEffect.IsPresent
-$remmediationOnly = $RemmediationOnly.IsPresent
+$remediationOnly = $RemediationOnly.IsPresent
 
 # Setting the local copies of parameters to simplify debugging
 # $windowsNewLineCells = $true
@@ -125,12 +125,24 @@ $remmediationOnly = $RemmediationOnly.IsPresent
 # $policyAssignmentFilter = @( "/providers/microsoft.management/managementgroups/11111111-1111-1111-1111-111111111111/providers/microsoft.authorization/policyassignments/taginh-env", "prod-asb" )
 # $policyEffectFilter = @( "auditifnotexists", "deny" )
 # $excludeManualPolicyEffect = $true
-# $remmediationOnly = $true
+# $remediationOnly = $true
 
 $InformationPreference = "Continue"
 $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRootFolder $DefinitionsRootFolder -OutputFolder $OutputFolder -Interactive $Interactive
 $tenantId = $pacEnvironment.tenantId
 $account = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $tenantId -Interactive $pacEnvironment.interactive
+
+# Telemetry
+if ($pacEnvironment.telemetryEnabled) {
+    Write-Information "Telemetry is enabled"
+    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-f464b017-898b-4156-9da5-af932831fa2f") 
+}
+else {
+    Write-Information "Telemetry is disabled"
+}
+Write-Information ""
+
+# Set the management portal URL
 $managementPortalUrlBase = $account.Environment.ManagementPortalUrl
 $managementPortalUrlStem = "$($managementPortalUrlBase)#@$($tenantId)/resource"
 
@@ -142,7 +154,7 @@ $rawNonCompliantList, $deployedPolicyResources, $scopeTable = Find-AzNonComplian
     -PolicyAssignmentFilter:$policyAssignmentFilter `
     -PolicyEffectFilter $policyEffectFilter `
     -ExcludeManualPolicyEffect:$excludeManualPolicyEffect `
-    -RemmediationOnly:$remmediationOnly
+    -RemediationOnly:$remediationOnly
 
 Write-Information "==================================================================================================="
 Write-Information "Collating non-compliant resources into simplified lists"
@@ -157,7 +169,9 @@ else {
 
     #source
     $allPolicyDefinitions = $deployedPolicyResources.policydefinitions.all
-    $allPolicyAssignments = $deployedPolicyResources.policyassignments.all
+    #$allPolicyAssignments = $deployedPolicyResources.policyassignments.managed - Why don't you work??
+
+    Set-Variable -Name allPolicyAssignments -Value $deployedPolicyResources.policyassignments.managed
 
     $collatedByPolicyId = @{}
     $summaryListByPolicy = [System.Collections.ArrayList]::new()
@@ -670,7 +684,7 @@ else {
     #endregion simplified details by Policy CSV
 
     #region simplified details by Resource Id CSV
-    $detailsCsvPath = Join-Path $pacEnvironment.outputFolder "non-compliance-report" "details-by-resource-id.csv"
+    $detailsCsvPath = Join-Path $pacEnvironment.outputFolder "non-compliance-report" "details-by-resource.csv"
     Write-Information "Writing simplfied details by Resource Id to $detailsCsvPath"
     $sortedDetailsList = $detailsListByResource | Sort-Object { $_.resourceId }, { $_.category }, { $_.policyName } | ForEach-Object {
         $normalizedDetails = [ordered]@{

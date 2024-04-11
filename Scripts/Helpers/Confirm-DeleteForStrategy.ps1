@@ -2,21 +2,27 @@ function Confirm-DeleteForStrategy {
     [CmdletBinding()]
     param (
         [string] $PacOwner,
-        [string] $Strategy
+        [string] $Strategy,
+
+        [Parameter(Mandatory = $false)]
+        $KeepDfcSecurityAssignments = $false
     )
 
     $shallDelete = switch ($PacOwner) {
         "thisPaC" {
             $true
-            break
         }
         "otherPaC" {
             $false
-            break
         }
         "unknownOwner" {
             $Strategy -eq "full"
-            break
+        }
+        "managedByDfcSecurityPolicies" {
+            !$KeepDfcSecurityAssignments -and $Strategy -eq "full"
+        }
+        "managedByDfcDefenderPlans" {
+            $false
         }
     }
     return $shallDelete

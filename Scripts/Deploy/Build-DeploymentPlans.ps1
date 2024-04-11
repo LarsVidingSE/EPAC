@@ -19,6 +19,9 @@
 .PARAMETER DevOpsType
     If set, outputs variables consumable by conditions in a DevOps pipeline. Valid values are '', 'ado' and 'gitlab'.
 
+.PARAMETER VirtualCores
+    Number of virtual cores available to calculate the deployment plan. Defaults to 4.
+
 .EXAMPLE
     .\Build-DeploymentPlans.ps1 -PacEnvironmentSelector "dev"
 
@@ -37,7 +40,7 @@
 [CmdletBinding()]
 param (
     [parameter(HelpMessage = "Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.", Position = 0)]
-    [string] $PacEnvironmentSelector,
+    [string] $PacEnvironmentSelector = "",
 
     [Parameter(HelpMessage = "Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.")]
     [string]$DefinitionsRootFolder,
@@ -45,12 +48,19 @@ param (
     [Parameter(HelpMessage = "Output folder path for plan files. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER or './Output'.")]
     [string]$OutputFolder,
 
+    [Parameter(HelpMessage = "If set, only build the exemptions plan.")]
+    [switch] $BuildExemptionsOnly,
+
     [Parameter(HelpMessage = "Script is used interactively. Script can prompt the interactive user for input.")]
     [switch] $Interactive,
 
     [Parameter(HelpMessage = "If set, outputs variables consumable by conditions in a DevOps pipeline.")]
     [ValidateSet("ado", "gitlab", "")]
-    [string] $DevOpsType = ""
+    [string] $DevOpsType = "",
+
+    [Parameter(HelpMessage = "Number of virtual cores available to calculate the deployment plan. Defaults to 4. A value of 0 disables parallel processing.")]
+    [Int16] $VirtualCores = 4
+
 )
 
 $PSDefaultParameterValues = @{
@@ -68,23 +78,24 @@ $InformationPreference = "Continue"
 $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRootFolder $DefinitionsRootFolder -OutputFolder $OutputFolder -Interactive $Interactive
 $null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive
 
-# Getting existing Policy resources
-$exemptionsAreNotManagedMessage = ""
-$policyExemptionsFolder = $pacEnvironment.policyExemptionsFolder
-
-$exemptionsFolderForPacEnvironment = "$($policyExemptionsFolder)/$($pacEnvironment.pacSelector)"
-if (!(Test-Path $policyExemptionsFolder -PathType Container)) {
-    $exemptionsAreNotManagedMessage = "Policy Exemptions folder 'policyExemptions' not found. Exemptions not managed by this EPAC instance."
+# Telemetry
+if ($pacEnvironment.telemetryEnabled) {
+    Write-Information "Telemetry is enabled"
+    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-3c88f740-55a8-4a96-9fba-30a81b52151a") 
 }
-elseif (!(Test-Path $exemptionsFolderForPacEnvironment -PathType Container)) {
-    $exemptionsAreNotManagedMessage = "Policy Exemptions are not managed by this EPAC instance's PaC environment $($pacEnvironment.pacSelector)!"
+else {
+    Write-Information "Telemetry is disabled"
 }
-$exemptionsAreNotManaged = $exemptionsAreNotManagedMessage -eq ""
+Write-Information ""
 
-$scopeTable = Get-AzScopeTree -PacEnvironment $pacEnvironment
-$deployedPolicyResources = Get-AzPolicyResources -PacEnvironment $pacEnvironment -ScopeTable $scopeTable -SkipExemptions:$exemptionsAreNotManaged
-
-# Process Policies
+#region plan data structures
+$buildSelections = @{
+    buildAny                  = $false
+    buildPolicyDefinitions    = $false
+    buildPolicySetDefinitions = $false
+    buildPolicyAssignments    = $false
+    buildPolicyExemptions     = $false
+}
 $policyDefinitions = @{
     new             = @{}
     update          = @{}
@@ -99,17 +110,6 @@ $allDefinitions = @{
     policysetdefinitions = @{}
 }
 $replaceDefinitions = @{}
-
-Build-PolicyPlan `
-    -DefinitionsRootFolder $pacEnvironment.policyDefinitionsFolder `
-    -PacEnvironment $pacEnvironment `
-    -DeployedDefinitions $deployedPolicyResources.policydefinitions `
-    -Definitions $policyDefinitions `
-    -AllDefinitions $allDefinitions `
-    -ReplaceDefinitions $replaceDefinitions `
-    -PolicyRoleIds $policyRoleIds
-
-# Process Policy Sets
 $policySetDefinitions = @{
     new             = @{}
     update          = @{}
@@ -118,17 +118,6 @@ $policySetDefinitions = @{
     numberOfChanges = 0
     numberUnchanged = 0
 }
-
-Build-PolicySetPlan `
-    -DefinitionsRootFolder $pacEnvironment.policySetDefinitionsFolder `
-    -PacEnvironment $pacEnvironment `
-    -DeployedDefinitions $deployedPolicyResources.policysetdefinitions `
-    -Definitions $policySetDefinitions `
-    -AllDefinitions $allDefinitions `
-    -ReplaceDefinitions $replaceDefinitions `
-    -PolicyRoleIds $policyRoleIds
-
-# Process Assignment JSON files
 $assignments = @{
     new             = @{}
     update          = @{}
@@ -139,44 +128,21 @@ $assignments = @{
 }
 $roleAssignments = @{
     numberOfChanges = 0
-    added           = @()
-    removed         = @()
+    added           = [System.Collections.ArrayList]::new()
+    updated         = [System.Collections.ArrayList]::new()
+    removed         = [System.Collections.ArrayList]::new()
 }
 $allAssignments = @{}
-
-Build-AssignmentPlan `
-    -AssignmentsRootFolder $pacEnvironment.policyAssignmentsFolder `
-    -PacEnvironment $pacEnvironment `
-    -ScopeTable $scopeTable `
-    -DeployedPolicyResources $deployedPolicyResources `
-    -Assignments $assignments `
-    -RoleAssignments $roleAssignments `
-    -AllDefinitions $allDefinitions `
-    -AllAssignments $allAssignments `
-    -ReplaceDefinitions $replaceDefinitions `
-    -PolicyRoleIds $policyRoleIds
-
 $exemptions = @{
     new             = @{}
     update          = @{}
     replace         = @{}
     delete          = @{}
     numberOfOrphans = 0
+    numberOfExpired = 0
     numberOfChanges = 0
     numberUnchanged = 0
 }
-
-# Process exemption JSON files
-Build-ExemptionsPlan `
-    -ExemptionsRootFolder $exemptionsFolderForPacEnvironment `
-    -ExemptionsAreNotManagedMessage $exemptionsAreNotManagedMessage `
-    -PacEnvironment $pacEnvironment `
-    -AllAssignments $allAssignments `
-    -Assignments $assignments `
-    -DeployedExemptions $deployedPolicyResources.policyExemptions `
-    -Exemptions $exemptions
-
-# Output Plan
 $pacOwnerId = $pacEnvironment.pacOwnerId
 $timestamp = Get-Date -AsUTC -Format "u"
 $policyPlan = @{
@@ -192,98 +158,281 @@ $rolesPlan = @{
     pacOwnerId      = $pacOwnerId
     roleAssignments = $roleAssignments
 }
+$policyDefinitionsFolder = $pacEnvironment.policyDefinitionsFolder
+$policySetDefinitionsFolder = $pacEnvironment.policySetDefinitionsFolder
+$policyAssignmentsFolder = $pacEnvironment.policyAssignmentsFolder
+$policyExemptionsFolder = $pacEnvironment.policyExemptionsFolder
+$policyExemptionsFolderForPacEnvironment = "$($policyExemptionsFolder)/$($pacEnvironment.pacSelector)"
+#endregion plan data structures
 
-Write-Information "==================================================================================================="
-Write-Information "Summary"
-Write-Information "==================================================================================================="
-
-if ($null -ne $pacEnvironment.policyDefinitionsFolder) {
-    Write-Information "Policy counts:"
-    Write-Information "    $($policyDefinitions.numberUnchanged) unchanged"
-    if ($policyDefinitions.numberOfChanges -eq 0) {
-        Write-Information "    $($policyDefinitions.numberOfChanges) changes"
+#region calculate which plans need to be built
+$warningMessages = [System.Collections.ArrayList]::new()
+$exemptionsAreNotManagedMessage = $null
+$exemptionsAreManaged = $true
+if (!(Test-Path $policyExemptionsFolder -PathType Container)) {
+    $exemptionsAreNotManagedMessage = "Policy Exemptions folder '$policyExemptionsFolder not found. Exemptions not managed by this EPAC instance."
+    $exemptionsAreManaged = $false
+}
+elseif (!(Test-Path $policyExemptionsFolderForPacEnvironment -PathType Container)) {
+    $exemptionsAreNotManagedMessage = "Policy Exemptions folder '$policyExemptionsFolderForPacEnvironment' for PaC environment $($pacEnvironment.pacSelector) not found. Exemptions not managed by this EPAC instance."
+    $exemptionsAreManaged = $false
+}
+if ($BuildExemptionsOnly) {
+    $null = $warningMessages.Add("Building only the Exemptions plan. Policy, Policy Set, and Assignment plans will not be built.")
+    if ($exemptionsAreManaged) {
+        $buildSelections.buildPolicyExemptions = $true
+        $buildSelections.buildAny = $true
     }
     else {
-        Write-Information "    $($policyDefinitions.numberOfChanges) changes:"
-        Write-Information "        new     = $($policyDefinitions.new.psbase.Count)"
-        Write-Information "        update  = $($policyDefinitions.update.psbase.Count)"
-        Write-Information "        replace = $($policyDefinitions.replace.psbase.Count)"
-        Write-Information "        delete  = $($policyDefinitions.delete.psbase.Count)"
+        $null = $warningMessages.Add($exemptionsAreNotManagedMessage)
+        $null = $warningMessages.Add("Policy Exemptions plan will not be built. Exiting...")
     }
+    $buildSelections.buildPolicyDefinitions = $false
+    $buildSelections.buildPolicySetDefinitions = $false
+    $buildSelections.buildPolicyAssignments = $false
 }
 else {
-    Write-Information "Policy definitions not managed by EPAC."
-}
-
-if ($null -ne $pacEnvironment.policySetDefinitionsFolder) {
-    Write-Information "Policy Set counts:"
-    Write-Information "    $($policySetDefinitions.numberUnchanged) unchanged"
-    if ($policySetDefinitions.numberOfChanges -eq 0) {
-        Write-Information "    $($policySetDefinitions.numberOfChanges) changes"
+    if (!(Test-Path $policyDefinitionsFolder -PathType Container)) {
+        $null = $warningMessages.Add("Policy definitions '$policyDefinitionsFolder' folder not found. Policy definitions not managed by this EPAC instance.")
     }
     else {
-        Write-Information "    $($policySetDefinitions.numberOfChanges) changes:"
-        Write-Information "        new     = $($policySetDefinitions.new.psbase.Count)"
-        Write-Information "        update  = $($policySetDefinitions.update.psbase.Count)"
-        Write-Information "        replace = $($policySetDefinitions.replace.psbase.Count)"
-        Write-Information "        delete  = $($policySetDefinitions.delete.psbase.Count)"
+        $buildSelections.buildPolicyDefinitions = $true
+        $buildSelections.buildAny = $true
     }
-}
-else {
-    Write-Information "Policy Set definitions not managed by EPAC."
-}
-
-if ($null -ne $pacEnvironment.policyAssignmentsFolder) {
-    Write-Information "Policy Assignment counts:"
-    Write-Information "    $($assignments.numberUnchanged) unchanged"
-    if ($assignments.numberOfChanges -eq 0) {
-        Write-Information "    $($assignments.numberOfChanges) changes"
+    if (!(Test-Path $policySetDefinitionsFolder -PathType Container)) {
+        $null = $warningMessages.Add("Policy Set definitions '$policySetDefinitionsFolder' folder not found. Policy Set definitions not managed by this EPAC instance.")
     }
     else {
-        Write-Information "    $($assignments.numberOfChanges) changes:"
-        Write-Information "        new     = $($assignments.new.psbase.Count)"
-        Write-Information "        update  = $($assignments.update.psbase.Count)"
-        Write-Information "        replace = $($assignments.replace.psbase.Count)"
-        Write-Information "        delete  = $($assignments.delete.psbase.Count)"
+        $buildSelections.buildPolicySetDefinitions = $true
+        $buildSelections.buildAny = $true
     }
-}
-else {
-    Write-Information "Policy definitions not managed by EPAC."
-}
-
-if ($exemptionsAreNotManagedMessage -ne "") {
-    Write-Warning $exemptionsAreNotManagedMessage
-}
-else {
-    Write-Information "Policy Exemption counts:"
-    Write-Information "    $($exemptions.numberUnchanged) unchanged"
-    if ($exemptions.numberOfChanges -eq 0) {
-        Write-Information "    $($exemptions.numberOfChanges) changes"
+    if (!(Test-Path $policyAssignmentsFolder -PathType Container)) {
+        $null = $warningMessages.Add("Policy Assignments '$policyAssignmentsFolder' folder not found. Policy Assignments not managed by this EPAC instance.")
     }
     else {
-        Write-Information "    $($exemptions.numberOfChanges) changes:"
-        Write-Information "        new     = $($exemptions.new.psbase.Count)"
-        Write-Information "        update  = $($exemptions.update.psbase.Count)"
-        Write-Information "        replace = $($exemptions.replace.psbase.Count)"
-        Write-Information "        delete  = $($exemptions.delete.psbase.Count)"
-        Write-Information "        orphans = $($exemptions.numberOfOrphans)"
+        $buildSelections.buildPolicyAssignments = $true
+        $buildSelections.buildAny = $true
     }
-}
-
-if ($null -ne $pacEnvironment.policyAssignmentsFolder) {
-    Write-Information "Role Assignment counts:"
-    if ($roleAssignments.numberOfChanges -eq 0) {
-        Write-Information "    $($roleAssignments.numberOfChanges) changes"
+    if ($exemptionsAreManaged) {
+        $buildSelections.buildPolicyExemptions = $true
+        $buildSelections.buildAny = $true
     }
     else {
-        Write-Information "    $($roleAssignments.numberOfChanges) changes:"
-        Write-Information "        add     = $($roleAssignments.added.psbase.Count)"
-        Write-Information "        remove  = $($roleAssignments.removed.psbase.Count)"
+        $null = $warningMessages.Add($exemptionsAreNotManagedMessage)
     }
+    if (-not $buildSelections.buildAny) {
+        $null = $warningMessages.Add("No Policies, Policy Set, Assignment, or Exemptions managed by this EPAC instance found. No plans will be built. Exiting...")
+    }
+}
+if ($warningMessages.Count -gt 0) {
+    foreach ($warningMessage in $warningMessages) {
+        Write-Warning $warningMessage
+    }
+}
+#endregion calculate which plans need to be built
+
+if ($buildSelections.buildAny) {
+    
+    # get the scope table for the deployment root scope amd the resources
+    $scopeTable = Build-ScopeTableForDeploymentRootScope -PacEnvironment $pacEnvironment
+    $skipExemptions = -not $buildSelections.buildPolicyExemptions
+    $skipRoleAssignments = -not $buildSelections.buildPolicyAssignments
+    $NoParallelProcessing = $VirtualCores -eq 0
+    # $NoParallelProcessing = $true # for debugging, disable parallel processing
+    $deployedPolicyResources = Get-AzPolicyResources `
+        -PacEnvironment $pacEnvironment `
+        -ScopeTable $scopeTable `
+        -SkipExemptions:$skipExemptions `
+        -SkipRoleAssignments:$skipRoleAssignments `
+        -NoParallelProcessing:$NoParallelProcessing
+
+    # Calculate roleDefinitionIds for built-in and inherited Policies
+    $readOnlyPolicyDefinitions = $deployedPolicyResources.policydefinitions.readOnly
+    foreach ($id in $readOnlyPolicyDefinitions.Keys) {
+        $deployedDefinitionProperties = Get-PolicyResourceProperties -PolicyResource $readOnlyPolicyDefinitions.$id
+        if ($deployedDefinitionProperties.policyRule.then.details -and $deployedDefinitionProperties.policyRule.then.details.roleDefinitionIds) {
+            $roleIds = $deployedDefinitionProperties.policyRule.then.details.roleDefinitionIds
+            $null = $policyRoleIds.Add($id, $roleIds)
+        }
+    }
+
+    # Populate allDefinitions.policydefinitions with all deployed definitions
+    $allDeployedDefinitions = $deployedPolicyResources.policydefinitions.all
+    foreach ($id in $allDeployedDefinitions.Keys) {
+        $allDefinitions.policydefinitions[$id] = $allDeployedDefinitions.$id
+    }
+
+    if ($buildSelections.buildPolicyDefinitions) {
+        # Process Policies
+        Build-PolicyPlan `
+            -DefinitionsRootFolder $policyDefinitionsFolder `
+            -PacEnvironment $pacEnvironment `
+            -DeployedDefinitions $deployedPolicyResources.policydefinitions `
+            -Definitions $policyDefinitions `
+            -AllDefinitions $allDefinitions `
+            -ReplaceDefinitions $replaceDefinitions `
+            -PolicyRoleIds $policyRoleIds
+    }
+
+    # Calculate roleDefinitionIds for built-in and inherited PolicySets
+    $readOnlyPolicySetDefinitions = $deployedPolicyResources.policysetdefinitions.readOnly
+    foreach ($id in $readOnlyPolicySetDefinitions.Keys) {
+        $policySetProperties = Get-PolicyResourceProperties -PolicyResource $readOnlyPolicySetDefinitions.$id
+        $roleIds = @{}
+        foreach ($policyDefinition in $policySetProperties.policyDefinitions) {
+            $policyId = $policyDefinition.policyDefinitionId
+            if ($policyRoleIds.ContainsKey($policyId)) {
+                $addRoleDefinitionIds = $PolicyRoleIds.$policyId
+                foreach ($roleDefinitionId in $addRoleDefinitionIds) {
+                    $roleIds[$roleDefinitionId] = "added"
+                }
+            }
+        }
+        if ($roleIds.psbase.Count -gt 0) {
+            $null = $policyRoleIds.Add($id, $roleIds.Keys)
+        }
+    }
+
+    # Populate allDefinitions.policysetdefinitions with deployed definitions
+    $allDeployedDefinitions = $deployedPolicyResources.policysetdefinitions.all
+    foreach ($id in $allDeployedDefinitions.Keys) {
+        $allDefinitions.policysetdefinitions[$id] = $allDeployedDefinitions.$id
+    }
+
+    if ($buildSelections.buildPolicySetDefinitions) {
+        # Process Policy Sets
+        Build-PolicySetPlan `
+            -DefinitionsRootFolder $policySetDefinitionsFolder `
+            -PacEnvironment $pacEnvironment `
+            -DeployedDefinitions $deployedPolicyResources.policysetdefinitions `
+            -Definitions $policySetDefinitions `
+            -AllDefinitions $allDefinitions `
+            -ReplaceDefinitions $replaceDefinitions `
+            -PolicyRoleIds $policyRoleIds
+    }
+
+    # Convert Policy and PolicySetDefinition to detailed Info
+    $combinedPolicyDetails = Convert-PolicyResourcesToDetails `
+        -AllPolicyDefinitions $allDefinitions.policydefinitions `
+        -AllPolicySetDefinitions $allDefinitions.policysetdefinitions `
+        -VirtualCores $VirtualCores
+
+    # Populate allAssignments
+    $deployedPolicyAssignments = $deployedPolicyResources.policyassignments.managed
+    foreach ($id  in $deployedPolicyAssignments.Keys) {
+        $allAssignments[$id] = $deployedPolicyAssignments.$id
+    }
+
+    if ($buildSelections.buildPolicyAssignments) {
+        # Process Assignment JSON files
+        Build-AssignmentPlan `
+            -AssignmentsRootFolder $policyAssignmentsFolder `
+            -PacEnvironment $pacEnvironment `
+            -ScopeTable $scopeTable `
+            -DeployedPolicyResources $deployedPolicyResources `
+            -Assignments $assignments `
+            -RoleAssignments $roleAssignments `
+            -AllAssignments $allAssignments `
+            -ReplaceDefinitions $replaceDefinitions `
+            -PolicyRoleIds $policyRoleIds `
+            -CombinedPolicyDetails $combinedPolicyDetails
+    }
+
+    if ($buildSelections.buildPolicyExemptions) {
+        # Process Exemption JSON files
+        Build-ExemptionsPlan `
+            -ExemptionsRootFolder $policyExemptionsFolderForPacEnvironment `
+            -ExemptionsAreNotManagedMessage $exemptionsAreNotManagedMessage `
+            -PacEnvironment $pacEnvironment `
+            -ScopeTable $scopeTable `
+            -AllDefinitions $allDefinitions `
+            -AllAssignments $allAssignments `
+            -CombinedPolicyDetails $combinedPolicyDetails `
+            -Assignments $assignments `
+            -DeployedExemptions $deployedPolicyResources.policyExemptions `
+            -Exemptions $exemptions
+    }
+
+    Write-Information "==================================================================================================="
+    Write-Information "Summary"
+    Write-Information "==================================================================================================="
+
+    if ($buildSelections.buildPolicyDefinitions) {
+        Write-Information "Policy counts:"
+        Write-Information "    $($policyDefinitions.numberUnchanged) unchanged"
+        if ($policyDefinitions.numberOfChanges -eq 0) {
+            Write-Information "    $($policyDefinitions.numberOfChanges) changes"
+        }
+        else {
+            Write-Information "    $($policyDefinitions.numberOfChanges) changes:"
+            Write-Information "        new     = $($policyDefinitions.new.psbase.Count)"
+            Write-Information "        update  = $($policyDefinitions.update.psbase.Count)"
+            Write-Information "        replace = $($policyDefinitions.replace.psbase.Count)"
+            Write-Information "        delete  = $($policyDefinitions.delete.psbase.Count)"
+        }
+    }
+
+    if ($buildSelections.buildPolicySetDefinitions) {
+        Write-Information "Policy Set counts:"
+        Write-Information "    $($policySetDefinitions.numberUnchanged) unchanged"
+        if ($policySetDefinitions.numberOfChanges -eq 0) {
+            Write-Information "    $($policySetDefinitions.numberOfChanges) changes"
+        }
+        else {
+            Write-Information "    $($policySetDefinitions.numberOfChanges) changes:"
+            Write-Information "        new     = $($policySetDefinitions.new.psbase.Count)"
+            Write-Information "        update  = $($policySetDefinitions.update.psbase.Count)"
+            Write-Information "        replace = $($policySetDefinitions.replace.psbase.Count)"
+            Write-Information "        delete  = $($policySetDefinitions.delete.psbase.Count)"
+        }
+    }
+
+    if ($buildSelections.buildPolicyAssignments) {
+        Write-Information "Policy Assignment counts:"
+        Write-Information "    $($assignments.numberUnchanged) unchanged"
+        if ($assignments.numberOfChanges -eq 0) {
+            Write-Information "    $($assignments.numberOfChanges) changes"
+        }
+        else {
+            Write-Information "    $($assignments.numberOfChanges) changes:"
+            Write-Information "        new     = $($assignments.new.psbase.Count)"
+            Write-Information "        update  = $($assignments.update.psbase.Count)"
+            Write-Information "        replace = $($assignments.replace.psbase.Count)"
+            Write-Information "        delete  = $($assignments.delete.psbase.Count)"
+        }
+        Write-Information "Role Assignment counts:"
+        if ($roleAssignments.numberOfChanges -eq 0) {
+            Write-Information "    $($roleAssignments.numberOfChanges) changes"
+        }
+        else {
+            Write-Information "    $($roleAssignments.numberOfChanges) changes:"
+            Write-Information "        add     = $($roleAssignments.added.psbase.Count)"
+            Write-Information "        update  = $($roleAssignments.updated.psbase.Count)"
+            Write-Information "        remove  = $($roleAssignments.removed.psbase.Count)"
+        }
+    }
+
+    if ($buildSelections.buildPolicyExemptions) {
+        Write-Information "Policy Exemption counts:"
+        Write-Information "    $($exemptions.numberUnchanged) unchanged"
+        Write-Information "    $($exemptions.numberOfOrphans) orphaned"
+        Write-Information "    $($exemptions.numberOfExpired) expired"
+        if ($exemptions.numberOfChanges -eq 0) {
+            Write-Information "    $($exemptions.numberOfChanges) changes"
+        }
+        else {
+            Write-Information "    $($exemptions.numberOfChanges) changes:"
+            Write-Information "        new     = $($exemptions.new.psbase.Count)"
+            Write-Information "        update  = $($exemptions.update.psbase.Count)"
+            Write-Information "        replace = $($exemptions.replace.psbase.Count)"
+            Write-Information "        delete  = $($exemptions.delete.psbase.Count)"
+        }
+    }
+
 }
 
 Write-Information "---------------------------------------------------------------------------------------------------"
-Write-Information "Output plan(s)"
+Write-Information "Output plan(s); if any, will be written to the following file(s):"
 $policyResourceChanges = $policyDefinitions.numberOfChanges
 $policyResourceChanges += $policySetDefinitions.numberOfChanges
 $policyResourceChanges += $assignments.numberOfChanges
