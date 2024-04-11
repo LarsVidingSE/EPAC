@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "."
+		},
+		{
+			"path": "../team5-epac"
 		}
 	],
 	"settings": {}
