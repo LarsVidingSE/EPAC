@@ -11,6 +11,14 @@
 		},
 		{
 			"path": "../Amba-export"
+		},
+		{
+			"name": "EPAC-Prod",
+			"path": "../../../AzDevOpsRepos/EPAC/EPAC-Prod"
+		},
+		{
+			"name": "EPAC-Fork",
+			"path": "../../../AzDevOpsRepos/EPAC/EPAC-Fork"
 		}
 	],
 	"settings": {}
