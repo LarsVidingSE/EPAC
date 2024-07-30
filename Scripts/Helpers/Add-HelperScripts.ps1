@@ -58,8 +58,8 @@
 . "$PSScriptRoot/Get-AzPolicyResources.ps1"
 . "$PSScriptRoot/Get-AzPolicyResourcesDetails.ps1"
 . "$PSScriptRoot/Get-CalculatedPolicyAssignmentsAndReferenceIds.ps1"
-. "$PSScriptRoot/Get-ClonedObject.ps1"
 . "$PSScriptRoot/Get-CustomMetadata.ps1"
+. "$PSScriptRoot/Get-DeepCloneAsOrderedHashtable.ps1"
 . "$PSScriptRoot/Get-DefinitionsFullPath.ps1"
 . "$PSScriptRoot/Get-DeploymentPlan.ps1"
 . "$PSScriptRoot/Get-GlobalSettings.ps1"
@@ -77,10 +77,10 @@
 . "$PSScriptRoot/New-ExportNode.ps1"
 
 . "$PSScriptRoot/Out-PolicyAssignmentFile.ps1"
-. "$PSScriptRoot/Out-PolicyAssignmentDocumentationToFile.ps1"
+. "$PSScriptRoot/Out-DocumentationForPolicyAssignments.ps1"
 . "$PSScriptRoot/Out-PolicyDefinition.ps1"
 . "$PSScriptRoot/Out-PolicyExemptions.ps1"
-. "$PSScriptRoot/Out-PolicySetsDocumentationToFile.ps1"
+. "$PSScriptRoot/Out-DocumentationForPolicySets.ps1"
 
 . "$PSScriptRoot/Remove-NullFields.ps1"
 . "$PSScriptRoot/Remove-GlobalNotScopes.ps1"
@@ -93,17 +93,22 @@
 . "$PSScriptRoot/Set-ExportNodeAncestors.ps1"
 . "$PSScriptRoot/Set-UniqueRoleAssignmentScopes.ps1"
 
+
 . "$PSScriptRoot/Split-ArrayIntoChunks.ps1"
 . "$PSScriptRoot/Split-AzPolicyResourceId.ps1"
 . "$PSScriptRoot/Split-HashtableIntoChunks.ps1"
+
+. "$PSScriptRoot/Submit-EPACTelemetry.ps1"
 
 . "$PSScriptRoot/Switch-PacEnvironment.ps1"
 
 . "$PSScriptRoot/Write-AssignmentDetails.ps1"
 . "$PSScriptRoot/Write-ErrorsFromErrorInfo.ps1"
 
+. "$PSScriptRoot/RestMethods/Get-AzManagementGroupRestMethod.ps1" 
 . "$PSScriptRoot/RestMethods/Get-AzPolicyAssignmentRestMethod.ps1"
 . "$PSScriptRoot/RestMethods/Get-AzPolicyExemptionsRestMethod.ps1"
+. "$PSScriptRoot/RestMethods/Get-AzResourceListRestMethod.ps1"
 . "$PSScriptRoot/RestMethods/Get-AzRoleAssignmentsRestMethod.ps1"
 . "$PSScriptRoot/RestMethods/Get-AzRoleDefinitionsRestMethod.ps1"
 . "$PSScriptRoot/RestMethods/Remove-AzResourceByIdRestMethod.ps1"   

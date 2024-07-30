@@ -48,7 +48,7 @@ function Build-AssignmentDefinitionAtLeaf {
     $nonComplianceMessages = $AssignmentDefinition.nonComplianceMessages
     $hasPolicySets = $AssignmentDefinition.hasPolicySets
     $perEntryNonComplianceMessages = $AssignmentDefinition.perEntryNonComplianceMessages
-
+    $flatPolicyList = $AssignmentDefinition.flatPolicyList
     $thisPacOwnerId = $PacEnvironment.pacOwnerId
 
     #endregion cache frequently used fields
@@ -164,7 +164,7 @@ function Build-AssignmentDefinitionAtLeaf {
             continue
         }
         $enforcementMode = $AssignmentDefinition.enforcementMode
-        $metadata = Get-ClonedObject $AssignmentDefinition.metadata -AsHashTable
+        $metadata = Get-DeepCloneAsOrderedHashtable $AssignmentDefinition.metadata
         if ($metadata.ContainsKey("pacOwnerId")) {
             Write-Error "    Leaf Node $($nodeName): metadata.pacOwnerId ($($metadata.pacOwnerId)) may not be set explicitly; it is reserved for EPAC usage."
             $hasErrors = $true
@@ -390,7 +390,6 @@ function Build-AssignmentDefinitionAtLeaf {
 
         #region identity (location, user-assigned, additionalRoleAssignments)
 
-        $roleDefinitionIds = $null
         $identityRequired = $false
         $managedIdentityLocation = $null
         $identitySpec = $null
@@ -567,7 +566,7 @@ function Build-AssignmentDefinitionAtLeaf {
         foreach ($scopeEntry in $scopeCollection) {
 
             # Clone hashtable
-            [hashtable] $scopedAssignment = Get-ClonedObject $baseAssignment -AsHashTable
+            [hashtable] $scopedAssignment = Get-DeepCloneAsOrderedHashtable $baseAssignment
 
             # Add scope and if defined notScopes()
             $scope = $scopeEntry.scope
@@ -587,11 +586,11 @@ function Build-AssignmentDefinitionAtLeaf {
                     if ($RoleDefinitions.ContainsKey($roleDefinitionId)) {
                         $roleDisplayName = $RoleDefinitions.$roleDefinitionId
                     }
-                    else {
-                        $null = $null
-                    }
+                    # else {
+                    #     $null = $null
+                    # }
                     $requiredRoleAssignment = @{
-                        scope            = $scopeEntry.scope
+                        scope            = $scope
                         roleDefinitionId = $roleDefinitionId
                         roleDisplayName  = $roleDisplayName
                         description      = "Policy Assignment '$id': Role Assignment required by Policy, deployed by: '$($PacEnvironment.deployedBy)'"
@@ -604,6 +603,7 @@ function Build-AssignmentDefinitionAtLeaf {
                 if ($additionalRoleAssignments) {
                     foreach ($additionalRoleAssignment in $additionalRoleAssignments) {
                         $roleDefinitionId = $additionalRoleAssignment.roleDefinitionId
+                        $roleAssignmentScope = $additionalRoleAssignment.scope
                         $roleDisplayName = "Unknown"
                         if ($RoleDefinitions.ContainsKey($roleDefinitionId)) {
                             $roleDisplayName = $RoleDefinitions.$roleDefinitionId
@@ -611,7 +611,7 @@ function Build-AssignmentDefinitionAtLeaf {
                         $requiredRoleAssignment = $null
                         if ($additionalRoleAssignment.crossTenant -eq $true) {
                             $requiredRoleAssignment = @{
-                                scope            = $scopeEntry.scope
+                                scope            = $roleAssignmentScope
                                 roleDefinitionId = $roleDefinitionId
                                 roleDisplayName  = $roleDisplayName
                                 description      = "Policy Assignment '$id': additional cross tenant Role Assignment deployed by: '$($PacEnvironment.deployedBy)'"
@@ -620,7 +620,7 @@ function Build-AssignmentDefinitionAtLeaf {
                         }
                         else {
                             $requiredRoleAssignment = @{
-                                scope            = $scopeEntry.scope
+                                scope            = $roleAssignmentScope
                                 roleDefinitionId = $roleDefinitionId
                                 roleDisplayName  = $roleDisplayName
                                 description      = "Policy Assignment '$id': additional Role Assignment deployed by: '$($PacEnvironment.deployedBy)'"

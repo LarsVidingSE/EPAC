@@ -24,7 +24,7 @@ function Build-ScopeTableForDeploymentRootScope {
             ManagementGroup = $deploymentRootScopeManagementGroupName
         }
     }
-    elseif ($deploymentRootScope.StartsWith("/subscriptions/")) {
+    elseif ($deploymentRootScope.StartsWith("/subscriptions/") -and $deploymentRootScope -notLike "*/resourceGroups/*") {
         $deploymentRootScopeSubscriptionId = $deploymentRootScope -replace "/subscriptions/"
         $scopeSplat = @{
             Subscription = $deploymentRootScopeSubscriptionId
@@ -93,7 +93,7 @@ function Build-ScopeTableForDeploymentRootScope {
     #region process subscriptions and/or management groups
     $scopeDetails = $null
     if ($null -ne $deploymentRootScopeSubscriptionId) {
-        $subscription = Get-AzSubscription -SubscriptionId $deploymentRootScopeSubscriptionId -TenantId $tenantId
+        $subscription = Get-AzSubscription -SubscriptionId $deploymentRootScopeSubscriptionId -TenantId $tenantId -ErrorAction Stop
         $subscriptionId = $subscription.Id
         $scopeDetails = Build-ScopeTableForSubscription `
             -SubscriptionId $subscriptionId `
@@ -103,7 +103,7 @@ function Build-ScopeTableForDeploymentRootScope {
             -ScopeTable $scopeTable
     }
     else {
-        $managementGroup = Get-AzManagementGroup -GroupName $deploymentRootScopeManagementGroupName -Expand -Recurse
+        $managementGroup = Get-AzManagementGroupRestMethod -GroupId $deploymentRootScopeManagementGroupName -Expand  -Recurse  -ErrorAction Stop
         $scopeDetails = Build-ScopeTableForManagementGroup `
             -ManagementGroup $managementGroup `
             -ResourceGroupsBySubscriptionId $resourceGroupsBySubscriptionId `
@@ -135,6 +135,9 @@ function Build-ScopeTableForDeploymentRootScope {
     if ($numberOfManagementGroups -gt 0) {
         $numberOfManagementGroups-- # subtract 1 for the root scope
         Write-Information "    Management groups = $($numberOfManagementGroups)"
+    }
+    if ($deploymentRootScope.StartsWith("/subscriptions/")) {
+        $numberOfSubscriptions-- # subtract 1 for the root scope
     }
     Write-Information "    Subscriptions     = $($numberOfSubscriptions)"
     Write-Information "    Resource groups   = $($numberofResourceGroups)"

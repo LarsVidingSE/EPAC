@@ -14,7 +14,6 @@ function Get-AzPolicyExemptions {
     $policyResources = [System.Collections.ArrayList]::new()
     $ProgressItemName = "Policy Exemptions"
     $now = Get-Date -AsUTC
-    $resourceIdsExist = @{}
     if ($PacEnvironment.cloud -eq "AzureChinaCloud") {
         # if ($PacEnvironment.cloud -ne "AzureChinaCloud") {
         # test china cloud in normal environment
@@ -25,7 +24,7 @@ function Get-AzPolicyExemptions {
             $scopeInformation = $ScopeTable.$scopeId
             if ($scopeInformation.type -ne "microsoft.resources/subscriptions/resourceGroups" -and $scopeId -ne "root") {
                 $exemptionsLocal = @()
-                if ($scopeInformation.type -eq "microsoft.resources/subscriptions") {
+                if ($scopeInformation.type -ne "Microsoft.Management/managementGroups") {
                     $exemptionsLocal = Get-AzPolicyExemptionsRestMethod -Scope $scopeId -ApiVersion $PacEnvironment.apiVersions.policyExemptions
                 }
                 elseif ($scopeInformation.type -eq "Microsoft.Management/managementGroups") {
@@ -58,10 +57,9 @@ function Get-AzPolicyExemptions {
     $policyResourcesTable = $DeployedPolicyResources.policyexemptions
     $policyExemptionsCounters = $policyResourcesTable.counters
 
-    foreach ($policyResourceRaw in $policyResources) {
-        $resourceTenantId = $policyResourceRaw.tenantId
+    foreach ($policyResource in $policyResources) {
+        $resourceTenantId = $policyResource.tenantId
         if ($resourceTenantId -in @($null, "", $environmentTenantId)) {
-            $policyResource = Get-ClonedObject $policyResourceRaw -AsHashTable -AsShallowClone
             $properties = Get-PolicyResourceProperties $policyResource
 
             $id = $policyResource.id
@@ -113,7 +111,7 @@ function Get-AzPolicyExemptions {
                 }
                 $resourceSelectors = $properties.resourceSelectors
                 $assignmentScopeValidation = $properties.assignmentScopeValidation
-                $pacOwner = Confirm-PacOwner -ThisPacOwnerId $thisPacOwnerId -PolicyResource $policyResourceRaw -ManagedByCounters $policyExemptionsCounters.managedBy
+                $pacOwner = Confirm-PacOwner -ThisPacOwnerId $thisPacOwnerId -PolicyResource $policyResource -ManagedByCounters $policyExemptionsCounters.managedBy
                 $status = "active"
                 $expiresInDays = [Int32]::MaxValue
                 if ($expiresOn) {
@@ -129,33 +127,6 @@ function Get-AzPolicyExemptions {
                     }
                     elseif ($expiresInDays -lt 15) {
                         $status = "active-expiring-within-15-days"
-                    }
-                }
-                $isIndividualResource = $true
-                if ($scope.StartsWith("/providers/Microsoft.Management/management")) {
-                    $isIndividualResource = $false
-                }
-                elseif ($scope.Contains("/providers/")) {
-                    $isIndividualResource = $true
-                }
-                else {
-                    # subscription, resourceGroup
-                    $isIndividualResource = $false
-                }
-                if ($isIndividualResource) {
-                    $thisResourceIdExists = $false
-                    if ($resourceIdsExist.ContainsKey($scope)) {
-                        $thisResourceIdExists = $resourceIdsExist.$scope
-                    }
-                    else {
-                        $resource = Get-AzResource -ResourceId $scope -ErrorAction SilentlyContinue
-                        $thisResourceIdExists = $null -ne $resource
-                        $resourceIdsExist[$scope] = $thisResourceIdExists
-                    }
-                    if (-not $thisResourceIdExists) {
-                        $policyResource.status = "orphaned-resource"
-                        $policyExemptionsCounters.orphaned += 1
-                        Write-Information "Policy Exemption $id is orphaned (resource $scope does not exist)"
                     }
                 }
 

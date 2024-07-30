@@ -4,7 +4,7 @@ The scripts are detailed in the [reference page](operational-scripts-reference.m
 
 ## Batch Creation of Remediation Tasks
 
-The script `Create-AzRemediationTasks` creates remediation tasks for all non-compliant resources for EPAC environments in the `global-settings.jsonc` file.
+The script `New-AzRemediationTasks` creates remediation tasks for all non-compliant resources for EPAC environments in the `global-settings.jsonc` file.
 
 This script executes all remediation tasks in a Policy as Code environment specified with parameter `PacEnvironmentSelector`. The script will interactively prompt for the value if the parameter is not supplied. The script will recurse the Management Group structure and subscriptions from the defined starting point.
 
@@ -18,9 +18,13 @@ This script executes all remediation tasks in a Policy as Code environment speci
 - [Remediate non-compliant resources with Azure Policy](https://learn.microsoft.com/en-us/azure/governance/policy/how-to/remediate-resources?tabs=azure-portal)
 - [Start-AzPolicyRemediation](https://learn.microsoft.com/en-us/powershell/module/az.policyinsights/start-azpolicyremediation?view=azps-10.1.0)
 
+## Documenting Policy
+
+`Build-PolicyDocumentation` builds documentation from instructions in the `policyDocumentations` folder reading the deployed Policy Resources from the EPAC environment. It is also used to generate parameter/effect CSV files for Policy Assignment files. See usage documentation in [Documenting Policy](operational-scripts-documenting-policy.md).
+
 ## Policy Resources Exports
 
-- `Export-AzPolicyResources` exports Azure Policy resources in EPAC. It also generates documentation for the exported resources (can be suppressed with `-SuppressDocumentation`). See usage documentation in [Extract existing Policy Resources](epac-extracting-policy-resources.md).
+- `Export-AzPolicyResources` exports Azure Policy resources in EPAC. It also generates documentation for the exported resources (can be suppressed with `-SuppressDocumentation`). See usage documentation in [Extract existing Policy Resources](start-extracting-policy-resources.md).
 - `Get-AzExemptions` retrieves Policy Exemptions from an EPAC environment and saves them to files.
 - `Get-AzPolicyAliasOutputCSV` exports Policy Aliases to CSV format.
 
@@ -30,13 +34,7 @@ The Hydration Kit is a set of scripts that can be used to deploy an EPAC environ
 
 ## CI/CD Helpers
 
-The scripts `Create-AzureDevOpsBug` and `Create-GitHubIssue` create a Bug or Issue when there are one or multiple failed Remediation Tasks.
-
-## Documenting Policy
-
-`Build-PolicyDocumentation` builds documentation from instructions in the `policyDocumentations` folder reading the deployed Policy Resources from the EPAC environment. It is also used to generate parameter/effect CSV files for Policy Assignment files. 
-
-See usage documentation in [Documenting Policy](operational-scripts-documenting-policy.md).
+The scripts `New-AzureDevOpsBug` and `New-GitHubIssue` create a Bug or Issue when there are one or multiple failed Remediation Tasks.
 
 ## Non-compliance Reports
 

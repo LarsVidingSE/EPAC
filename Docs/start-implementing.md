@@ -1,8 +1,7 @@
-# Implementing Enterprise Policy as Code
+# Start the Enterprise Policy as Code (EPAC) Implementation
 
-!!! danger "Caution"
-
-    EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will **delete any Policy resources not defined in the EPAC repo**. This behavior can be modified as documented in the [desired state strategy](desired-state-strategy.md) page.
+> [!CAUTION]
+> EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will **delete any Policy resources not defined in the EPAC repo**. This behavior can be modified as documented in the [desired state strategy](settings-desired-state.md) page.
 
 ## Getting Started
 
@@ -16,7 +15,7 @@ The following steps are required to implement Enterprise Policy as Code (EPAC) i
 5. Create your [`Definitions` folder and subfolders](#create-the-definitions-folder).
 6. Populate `global-settings.jsonc` with your [environment settings](settings-global-setting-file.md) and [desired state strategy](settings-dfc-assignments.md).
 7. Populate your Definitions folder with Policy resources.
-    - [Option A:] [Extract existing Policy resources](epac-extracting-policy-resources.md) from your Azure environment.
+    - [Option A:] [Extract existing Policy resources](start-extracting-policy-resources.md) from your Azure environment.
     - [Option B:] [Integrate Azure Landing Zones (ALZ)](integrating-with-alz.md).
     - [Option C:] Utilize the [hydration kit](operational-scripts-hydration-kit.md) and `StarterKit` content.
     - [Optional] Create custom [Policy definitions](policy-definitions.md).
@@ -28,9 +27,8 @@ The following steps are required to implement Enterprise Policy as Code (EPAC) i
 
 ## EPAC Concepts and Environments
 
-!!! success "Important"
-
-    Understanding the concepts and  environments is crucial. Do **not** proceed until you completely understand this section.
+> [!IMPORTANT]
+> Understanding the concepts and  environments is crucial. Do **not** proceed until you completely understand this section.
 
 ### EPAC Concepts
 
@@ -48,7 +46,7 @@ EPAC defines environments identified by a string (unique per repository) called 
 - `rootDefinitionScope` - scope for custom Policy and Policy Set definition deployment.
 - [Optional] Define the following items:
   - `globalNotScopes` - used to exclude scopes from Policy Assignments.
-  - `managedIdentityLocations` - used for the location for created Managed Identities.
+  - `managedIdentityLocation` - used for the location for created Managed Identities.
   - `desiredState` - desired state strategy and details for Policy resources.
   - `managedTenant` - used for environments that are in a lighthouse managed tenant.
 
@@ -136,18 +134,18 @@ For assignment files, this is a top level property on the assignment's root node
 ],
 ```
 
-
 ## Install Powershell and EPAC
 
 EPAC can be installed in two ways:
 
 - Install the `EnterprisePolicyAsCode` module from the [PowerShell marketplace](https://www.powershellgallery.com/packages/EnterprisePolicyAsCode). This is the recommended approach documented here.
-- Copy the source code from an [EPAC GitHub repository fork](https://github.com/Azure/enterprise-azure-policy-as-code). The process is described in [Forking the GitHub Repo - an Alternate Installation Method](fork-github.md) page.
+- Copy the source code from an [EPAC GitHub repository](https://github.com/Azure/enterprise-azure-policy-as-code) fork. The process is described in [Forking the GitHub Repo - an Alternate Installation Method](start-forking-github-repo.md) page.
 
 ### Installation Steps
 
 1. [Install PowerShell 7.4 or later](https://github.com/PowerShell/PowerShell/releases).
 2. Install the Az PowerShell modules and Enterprise Policy as Code module.
+
 ```ps1
     Install-Module Az -Scope CurrentUser
     Install-Module EnterprisePolicyAsCode -Scope CurrentUser
@@ -162,7 +160,7 @@ Many scripts use parameters for input and output folders. They default to the cu
 - Define the Azure environment(s) in file `global-settings.jsonc`
 - Create custom Policies (optional) in folder `policyDefinitions`
 - Create custom Policy Sets (optional) in folder `policySetDefinitions`
--  efine the Policy Assignments in folder `policyAssignments`
+- Define the Policy Assignments in folder `policyAssignments`
 - Define the Policy Exemptions (optional) in folder `policyExemptions`
 - Define Documentation in folder `policyDocumentations]`
 
@@ -171,13 +169,13 @@ Many scripts use parameters for input and output folders. They default to the cu
 Create a new EPAC `Definitions` folder with a number of subfolder and a `global-settings.jsonc` file
 
 ```ps1
-New-EPACDefinitionFolder -DefinitionsRootFolder Definitions
+New-HydrationDefinitionFolder -DefinitionsRootFolder Definitions
 ```
 
 ## Debug EPAC issues
 
 Should you encounter issues with the expected behavior of EPAC, try the following:
 
-* Run the scripts interactively.
-* [Debug the scripts in VS Code](https://learn.microsoft.com/en-us/powershell/scripting/dev-cross-plat/vscode/using-vscode?view=powershell-7.3).
-* Ask for help by raising a [GitHub Issue](https://github.com/Azure/enterprise-azure-policy-as-code/issues/new)
+- Run the scripts interactively.
+- [Debug the scripts in VS Code](https://learn.microsoft.com/en-us/powershell/scripting/dev-cross-plat/vscode/using-vscode?view=powershell-7.3).
+- Ask for help by raising a [GitHub Issue](https://github.com/Azure/enterprise-azure-policy-as-code/issues)

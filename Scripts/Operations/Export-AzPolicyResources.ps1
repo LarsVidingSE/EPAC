@@ -140,7 +140,7 @@ $invalidChars += (":[]()$".ToCharArray())
 # Telemetry
 if ($globalSettings.telemetryEnabled) {
     Write-Information "Telemetry is enabled"
-    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-dc5b73fd-e93c-40ca-8fef-976762d1d30") 
+    Submit-EPACTelemetry -Cuapid "pid-dc5b73fd-e93c-40ca-8fef-976762d1d30" -DeploymentRootScope $pacEnvironment.deploymentRootScope
 }
 else {
     Write-Information "Telemetry is disabled"
@@ -206,9 +206,10 @@ if ($Mode -ne 'exportFromRawFiles') {
 
     foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
 
-        $pacEnvironment = $pacEnvironments.$pacSelector
+        # $pacEnvironment = $pacEnvironments.$pacSelector
 
         if ($InputPacSelector -eq $pacSelector -or $InputPacSelector -eq '*') {
+            $pacEnvironment = Select-PacEnvironment $pacSelector -DefinitionsRootFolder $DefinitionsRootFolder -OutputFolder $OutputFolder -Interactive $Interactive
             $null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $Interactive
             if ($Mode -eq 'psrule' -and $PSRuleIgnoreFullScope -eq $false) {
                 $pacEnvironmentOriginalScope = $pacEnvironment.deploymentRootScope
@@ -221,10 +222,10 @@ if ($Mode -ne 'exportFromRawFiles') {
             if ($Mode -eq 'psrule') {
                 $newScopeTable = @{}
                 foreach ($scope in $scopeTable.GetEnumerator()) {
-                    if ($scope.Value.childrenList.ContainsKey($pacEnvironmentOriginalScope)) {
+                    if ($scope.Value.parentTable.ContainsKey($pacEnvironmentOriginalScope)) {
                         $newObj = $scope.Value | Select-Object -ExcludeProperty childrenList
                         $children = @{}
-                        $scope.Value.childrenList.GetEnumerator() | Where-Object Key -eq $pacEnvironmentOriginalScope | ForEach-Object {
+                        $scope.Value.parentTable.GetEnumerator() | Where-Object Key -eq $pacEnvironmentOriginalScope | ForEach-Object {
                             $children.Add($_.Key, $_.Value)
                         }
                         Add-Member -InputObject $newObj -MemberType NoteProperty -Name childrenList -Value $children
@@ -288,18 +289,18 @@ if ($Mode -ne 'exportFromRawFiles') {
                 Sku                = $policy.Value.Sku
                 PolicyAssignmentId = $policy.Value.ResourceId
                 Properties         = @{
-                    Scope                 = $policy.Value.Properties.Scope
-                    NotScope              = $policy.Value.Properties.NotScope
-                    DisplayName           = $policy.Value.Properties.DisplayName
-                    Description           = $policy.Value.Properties.Description
-                    Metadata              = $policy.Value.Properties.Metadata
-                    EnforcementMode       = switch ($policy.Value.Properties.EnforcementMode) {
+                    Scope                 = $policy.Value.properties.scope
+                    NotScope              = $policy.Value.properties.notScopes
+                    DisplayName           = $policy.Value.properties.displayName
+                    Description           = $policy.Value.properties.description
+                    Metadata              = $policy.Value.properties.metadata
+                    EnforcementMode       = switch ($policy.Value.properties.enforcementMode) {
                         0 { "Default" }
                         1 { "DoNotEnforce" }
                     }
-                    PolicyDefinitionId    = $policy.Value.Properties.PolicyDefinitionId
-                    Parameters            = $policy.Value.Properties.Parameters
-                    NonComplianceMessages = $policy.Value.Properties.NonComplianceMessages
+                    PolicyDefinitionId    = $policy.Value.properties.policyDefinitionId
+                    Parameters            = $policy.Value.properties.parameters
+                    NonComplianceMessages = $policy.Value.properties.nonComplianceMessages
                 }
             }
     
@@ -434,28 +435,18 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
 
             # Collect Policy Properties
             $metadata = Get-CustomMetadata $rawMetadata -Remove "pacOwnerId"
-            $version = $properties.version
             $id = $policyDefinition.id
             $name = $policyDefinition.name
-            # if ($null -eq $version) {
-            #     if ($metadata.version) {
-            #         $version = $metadata.version
-            #     }
-            #     else {
-            #         $version = 1.0.0
-            #     }
-            # }
 
-            $definition = [PSCustomObject]@{
+            $definition = [ordered]@{
                 name       = $name
-                properties = [PSCustomObject]@{
+                properties = [ordered]@{
                     displayName = $properties.displayName
                     description = $properties.description
                     mode        = $properties.mode
                     metadata    = $metadata
-                    version     = $version
                     parameters  = $properties.parameters
-                    policyRule  = [PSCustomObject]@{
+                    policyRule  = [ordered]@{
                         if   = $properties.policyRule.if
                         then = $properties.policyRule.then
                     }
@@ -532,31 +523,22 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
 
             # Collect Policy Set Properties
             $metadata = Get-CustomMetadata $rawMetadata -Remove "pacOwnerId"
-            $version = $properties.version
-            # if ($null -eq $version) {
-            #     if ($metadata.version) {
-            #         $version = $metadata.version
-            #     }
-            #     else {
-            #         $version = 1.0.0
-            #     }
-            # }
 
             # Adjust policyDefinitions for EPAC
-            $policyDefinitionsIn = Get-ClonedObject $properties.policyDefinitions -AsHashTable
+            $policyDefinitionsIn = $properties.policyDefinitions
             $policyDefinitionsOut = [System.Collections.ArrayList]::new()
             foreach ($policyDefinitionIn in $policyDefinitionsIn) {
                 $parts = Split-AzPolicyResourceId -Id $policyDefinitionIn.policyDefinitionId
                 $policyDefinitionOut = $null
                 if ($parts.scopeType -eq "builtin") {
-                    $policyDefinitionOut = [PSCustomObject]@{
+                    $policyDefinitionOut = [ordered]@{
                         policyDefinitionReferenceId = $policyDefinitionIn.policyDefinitionReferenceId
                         policyDefinitionId          = $policyDefinitionIn.policyDefinitionId
                         parameters                  = $policyDefinitionIn.parameters
                     }
                 }
                 else {
-                    $policyDefinitionOut = [PSCustomObject]@{
+                    $policyDefinitionOut = [ordered]@{
                         policyDefinitionReferenceId = $policyDefinitionIn.policyDefinitionReferenceId
                         policyDefinitionName        = $parts.name
                         parameters                  = $policyDefinitionIn.parameters
@@ -567,18 +549,17 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
                 }
                 $groupNames = $policyDefinitionIn.groupNames
                 if ($null -ne $groupNames -and $groupNames.Count -gt 0) {
-                    Add-Member -InputObject $policyDefinitionOut -TypeName "NoteProperty" -NotePropertyName "groupNames" -NotePropertyValue $groupNames
+                    $policyDefinitionOut.Add("groupNames", $groupNames)
                 }
                 $null = $policyDefinitionsOut.Add($policyDefinitionOut)
             }
 
-            $definition = [PSCustomObject]@{
+            $definition = [ordered]@{
                 name       = $policySetDefinition.name
-                properties = [PSCustomObject]@{
+                properties = [ordered]@{
                     displayName            = $properties.displayName
                     description            = $properties.description
                     metadata               = $metadata
-                    version                = $version
                     parameters             = $properties.parameters
                     policyDefinitions      = $policyDefinitionsOut.ToArray()
                     policyDefinitionGroups = $properties.policyDefinitionGroups
@@ -696,12 +677,8 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
 
             $scope = $policyAssignment.resourceIdParts.scope
             $notScopes = Remove-GlobalNotScopes `
-                -NotScopes $policyAssignment.notScopes `
+                -AssignmentNotScopes $policyAssignment.properties.notScopes `
                 -GlobalNotScopes $pacEnvironment.globalNotScopes
-            if ($notScopes.Count -eq 0) {
-                $notScopes = $null
-            }
-
             $additionalRoleAssignments = [System.Collections.ArrayList]::new()
             foreach ($role in $roles) {
                 if ($scope -ne $role.scope) {
@@ -721,11 +698,21 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
             }
             if ($identityType -eq "UserAssigned") {
                 $userAssignedIdentities = $policyAssignment.identity.userAssignedIdentities
-                $identityProperty = $userAssignedIdentities.psobject.Properties
-                $identity = $identityProperty.Name
-                $identityEntry = @{
-                    userAssigned = $identity
-                    location     = $location
+                # $identityProperty = $userAssignedIdentities.psobject.Properties
+                $identity = $userAssignedIdentities.GetEnumerator().Name
+                if ($identity.Count -gt 1) {
+                    $identityEntry = $identity | ForEach-Object {
+                        @{
+                            userAssigned = $PSItem
+                            location     = $location
+                        }
+                    }
+                }
+                else {
+                    $identityEntry = @{
+                        userAssigned = $identity
+                        location     = $location
+                    }
                 }
             }
             elseif ($identityType -eq "SystemAssigned") {
@@ -737,7 +724,7 @@ foreach ($pacSelector in $globalSettings.pacEnvironmentSelectors) {
 
             $parameters = @{}
             if ($null -ne $properties.parameters -and $properties.parameters.psbase.Count -gt 0) {
-                $parametersClone = Get-ClonedObject $properties.parameters -AsHashTable
+                $parametersClone = Get-DeepCloneAsOrderedHashtable $properties.parameters
                 foreach ($parameterName in $parametersClone.Keys) {
                     $parameterValue = $parametersClone.$parameterName
                     $parameters[$parameterName] = $parameterValue.value

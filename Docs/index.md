@@ -2,13 +2,11 @@
 
 Enterprise Azure Policy as Code (EPAC for short) is a number of PowerShell scripts which can be used in CI/CD based system or a semi-automated use to deploy Policies, Policy Sets, Policy Assignments, Policy Exemptions and Role Assignments. It also contains operational scripts to simplify operational tasks.
 
-!!! danger "Caution"
+> [!CAUTION]
+> Review the Breaking changes in v10.0.0 carefully to avoid issues with your EPAC instance. The changes are [documented here](start-changes.md#breaking-changes-in-v1000).
 
-    v10.0.0 has breaking changes. Please review the [Changes](changes.md) document.
-
-!!! success "Important"
-
-    Starting with v8.0.0, Enterprise Policy as Code (EPAC) is tracking the usage using [Customer Usage Attribution](https://learn.microsoft.com/en-us/partner-center/marketplace/azure-partner-customer-usage-attribution). In accordance with Microsoft's privacy policies, you have the right to **opt-out** of this tracking. Please review [Telemetry below](#telemetry-tracking-using-customer-usage-attribution-pid) and [Microsoft Privacy](https://privacy.microsoft.com/en-US/) for more information.
+> [!IMPORTANT]
+> Starting with v8.0.0, Enterprise Policy as Code (EPAC) is tracking the usage using [Customer Usage Attribution](https://learn.microsoft.com/en-us/partner-center/marketplace/azure-partner-customer-usage-attribution). In accordance with Microsoft's privacy policies, you have the right to **opt-out** of this tracking. Please review [Telemetry below](#telemetry-tracking-using-customer-usage-attribution-pid) and [Microsoft Privacy](https://privacy.microsoft.com/en-US/) for more information.
 
 ## Benefits of EPAC
 
@@ -20,19 +18,17 @@ Enterprise Azure Policy as Code (EPAC for short) is a number of PowerShell scrip
 - Deployments are sequenced based on the dependencies between the different Policy resources
 - Operational scripts to simplify operational tasks
 - Integration with Azure Landing Zone recommended policies
-- Starter Kit with examples
+- Starter Kit with examples.
 
-!!! danger "Caution"
-
-    EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will **delete any Policy resources not defined in the EPAC repo**. This behavior can be modified as documented in the [desired state strategy](settings-desired-state.md) page.
+> [!CAUTION]
+> EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will **delete any Policy resources not defined in the EPAC repo**. This behavior can be modified as documented in the [desired state strategy](settings-desired-state.md) page.
 
 ## Who Should use EPAC?
 
 EPAC is designed for medium and large organizations with a larger number of Policies, Policy Sets and Assignments and/or complex deployment scenarios, such as, multiple tenants, multiple teams managing Policies.
 
-!!! tip
-
-    EPAC provides a mature [integration with Azure Landing Zones](integrating-with-alz.md). Utilizing [Azure Landing Zones](https://aka.ms/alz/aac) together with EPAC is highly recommended.
+> [!TIP]
+> EPAC provides a mature [integration with Azure Landing Zones](integrating-with-alz.md). Utilizing [Azure Landing Zones](https://aka.ms/alz/aac) together with EPAC is highly recommended.
 
 ### Smaller Organizations
 
@@ -45,13 +41,14 @@ EPAC is designed for medium and large organizations with a larger number of Poli
 - [GitHub Repo](https://github.com/Azure/enterprise-azure-policy-as-code)
 - [GitHub Issues](https://github.com/Azure/enterprise-azure-policy-as-code/issues)
 - [Starter Kit](https://github.com/Azure/enterprise-azure-policy-as-code/tree/main/StarterKit)
+- [Hydration Kit](start-hydration-kit.md)
 - [Enterprise Policy as Code PowerShell Module](https://www.powershellgallery.com/packages/EnterprisePolicyAsCode)
 - [Azure Enterprise Policy as Code – A New Approach](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/azure-enterprise-policy-as-code-a-new-approach/ba-p/3607843)
 - [Azure Enterprise Policy as Code – Azure Landing Zones Integration](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/azure-enterprise-policy-as-code-azure-landing-zones-integration/ba-p/3642784)
 
 ## Deployment Scripts
 
-Three deployment scripts plan a deployment, deploy Policy resources, and Role Assignments respectively as shown in the following diagram. The solution consumes definition files (JSON and/or CSV files). The planning script (`Build-DeploymentPlan`) creates plan files (`policy-plan.json` and `roles-plan.json`) to be consumed by the two deployment scripts (`Deploy-PolicyPlan` and `Deploy-RolesPlan`). The scripts require `Reader`, `Contributor` and `User Access Administrator` privileges respectively as indicated in blue text in the diagram. The diagram also shows the usual approval gates after each step/script for prod deployments.
+Three deployment scripts plan a deployment, deploy Policy resources, and Role Assignments respectively as shown in the following diagram. The solution consumes definition files (JSON and/or CSV files). The planning script (`Build-DeploymentPlan`) creates plan files (`policy-plan.json` and `roles-plan.json`) to be consumed by the two deployment scripts (`Deploy-PolicyPlan` and `Deploy-RolesPlan`). The scripts require `Reader`, `Resource Policy Contributor` and `Role Based Access Administrator` privileges respectively as indicated in blue text in the diagram. The diagram also shows the usual approval gates after each step/script for prod deployments.
 
 ![image.png](Images/epac-deployment-scripts.png)
 
@@ -91,15 +88,16 @@ The following is the unique IDs (also known as PIDs) used in each of the modules
 | `Deploy-PolicyPlan` | `fe9ff1e8-5521-4b9d-ab1d-84e15447565e` |
 | `Deploy-RolesPlan` | `cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c` |
 | `Build-PolicyDocumentation` | `2dc29bae-2448-4d7f-b911-418421e83900` |
-| `Create-AzRemediationTasks` | `6f4dcbef-f6e2-4c29-ba2a-eef748d88157` |
+| `New-AzRemediationTasks` | `6f4dcbef-f6e2-4c29-ba2a-eef748d88157` |
 | `Export-AzPolicyResources` | `dc5b73fd-e93c-40ca-8fef-976762d1d30` |
 | `Export-NonComplianceReports` | `f464b017-898b-4156-9da5-af932831fa2f` |
 | `Get-AzExemptions` | `3f02e7d5-1cf5-490a-a95c-3d49f0673093` |
 | `New-AzPolicyReaderRole` | `f4b5b7ac-70b4-40fc-836f-585791aa83e7` |
+| `Sync-ALZPolicies` | `a5e82cd0-9dda-417b-948c-68ec81596c32`|
 
 ## Support
 
-Please raise issues via the [GitHub](https://github.com/Azure/enterprise-azure-policy-as-code/issues) repository.
+Please raise issues via the [GitHub](https://github.com/Azure/enterprise-azure-policy-as-code/issues) repository using the templates provided.
 
 ## Contributing
 

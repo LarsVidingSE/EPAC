@@ -15,7 +15,7 @@ function Merge-AssignmentParametersEx {
     $nonComplianceMessageColumn = $ParameterInstructions.nonComplianceMessageColumn
 
     #region parameters column
-    $parameters = Get-ClonedObject $BaseAssignment.parameters -AsHashTable
+    $parameters = Get-DeepCloneAsOrderedHashtable $BaseAssignment.parameters
     foreach ($row in $csvParameterArray) {
         if ($row.flatPolicyEntryKey) {
             $parametersColumnCell = $row[$parametersColumn]
@@ -60,6 +60,7 @@ function Merge-AssignmentParametersEx {
                 $effectAllowedValues = $perPolicySet.effectAllowedValues
                 $effectAllowedOverrides = $perPolicySet.effectAllowedOverrides
                 $effectDefault = $perPolicySet.effectDefault
+                $policyDefinitionReferenceId = $perPolicySet.policyDefinitionReferenceId
                 if ($isProcessed) {
                     #region the second and subsequent time this Policy is processed, the effect must be adjusted to audit
                     $planedEffect = switch ($requestedEffect) {
@@ -96,8 +97,6 @@ function Merge-AssignmentParametersEx {
                 if ($planedEffect -ne $effectDefault) {
 
                     #region effect parameters including overrides
-                    $policyDefinitionReferenceId = $perPolicySet.policyDefinitionReferenceId
-
                     $useOverrides = $false
                     $confirmedEffect = $null
                     if ($perPolicySet.isEffectParameterized) {

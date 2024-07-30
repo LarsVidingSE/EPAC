@@ -4,7 +4,7 @@ This PowerShell script creates remediation tasks for all non-compliant resources
 Azure Active Directory (AAD) tenant.
 
 .DESCRIPTION
-The Create-AzRemediationTasks.ps1 PowerShell creates remediation tasks for all non-compliant resources
+The New-AzRemediationTasks.ps1 PowerShell creates remediation tasks for all non-compliant resources
 in the current AAD tenant. If one or multiple remediation tasks fail, their respective objects are
 added to a PowerShell variable that is outputted for later use in the Azure DevOps Pipeline.
 
@@ -33,25 +33,25 @@ Filter by Policy Assignment names (array) or ids (array).
 Filter by Policy effect (array).
 
 .EXAMPLE
-Create-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev"
+New-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev"
 
 .EXAMPLE
-Create-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions"
+New-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions"
 
 .EXAMPLE
-Create-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -Interactive $false
+New-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -Interactive $false
 
 .EXAMPLE
-Create-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -OnlyCheckManagedAssignments
+New-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -OnlyCheckManagedAssignments
 
 .EXAMPLE
-Create-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -PolicyDefinitionFilter "Require tag 'Owner' on resource groups" -PolicySetDefinitionFilter "Require tag 'Owner' on resource groups" -PolicyAssignmentFilter "Require tag 'Owner' on resource groups"
+New-AzRemediationTasks.ps1 -PacEnvironmentSelector "dev" -DefinitionsRootFolder "C:\git\policy-as-code\Definitions" -PolicyDefinitionFilter "Require tag 'Owner' on resource groups" -PolicySetDefinitionFilter "Require tag 'Owner' on resource groups" -PolicyAssignmentFilter "Require tag 'Owner' on resource groups"
 
 .INPUTS
 None.
 
 .OUTPUTS
-The Create-AzRemediationTasks.ps1 PowerShell script outputs multiple string values for logging purposes, a JSON
+The New-AzRemediationTasks.ps1 PowerShell script outputs multiple string values for logging purposes, a JSON
 string containing all the failed Remediation Tasks and a boolean value, both of which are used in a later stage
 of the Azure DevOps Pipeline.
 
@@ -242,7 +242,7 @@ else {
         Write-Verbose "Parameters: $($parameters | ConvertTo-Json -Depth 99)"
         if ($WhatIfPreference) {
             Write-Information "`tWhatIf: Remediation Task would have been created."
-            $newPolicyRemediationTask = [PSCustomObject]@{
+            $newPolicyRemediationTask = [ordered]@{
                 Name               = $parameters.Name
                 Id                 = $parameters.Name
                 PolicyAssignmentId = $_.PolicyAssignmentId
@@ -257,7 +257,7 @@ else {
 
             if ($null -eq $newPolicyRemediationTask) {
                 Write-Information "`tRemediation Task could not be created."
-                $failedPolicyRemediationTask = [PSCustomObject]@{
+                $failedPolicyRemediationTask = [ordered]@{
                     Name               = $parameters.Name
                     Id                 = "Not created"
                     PolicyAssignmentId = $_.PolicyAssignmentId
@@ -334,7 +334,7 @@ else {
                     }
                     elseif ($remediationTaskState -eq 'Failed') {
                         Write-Information "`tRemediation Task '$($runningPolicyRemediationTask.Name)' failed."
-                        $failedPolicyRemediationTask = [PSCustomObject]@{
+                        $failedPolicyRemediationTask = [ordered]@{
                             Name               = $runningPolicyRemediationTask.Name
                             Id                 = $runningPolicyRemediationTask.Id
                             PolicyAssignmentId = $runningPolicyRemediationTask.PolicyAssignmentId

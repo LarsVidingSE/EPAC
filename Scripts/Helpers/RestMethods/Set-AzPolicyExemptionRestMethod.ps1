@@ -1,8 +1,8 @@
 function Set-AzPolicyExemptionRestMethod {
     [CmdletBinding()]
     param (
-        [PSCustomObject] $ExemptionObj,
-        [string] $ApiVersion
+        $ExemptionObj,
+        $ApiVersion
     )
 
     # Write log info
@@ -39,7 +39,11 @@ function Set-AzPolicyExemptionRestMethod {
             Write-Warning "Ignoring scope locked error: $($statusCode) -- $($content)"
         }
         else {
-            Write-Error "Policy Exemption error $($statusCode) -- $($content)"
+            Write-Warning "Error, continue deployment: $($statusCode) -- $($content)"
+        }
+        if ($statusCode -eq 404) {
+            Write-Warning "Please verify Policy Exemptions are valid"
+            exit 1
         }
     }
 }

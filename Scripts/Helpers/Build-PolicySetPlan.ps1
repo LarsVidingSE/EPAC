@@ -26,7 +26,7 @@ function Build-PolicySetPlan {
     }
 
     $managedDefinitions = $DeployedDefinitions.managed
-    $deleteCandidates = Get-ClonedObject $managedDefinitions -AsHashTable -AsShallowClone
+    $deleteCandidates = $managedDefinitions.Clone()
     $deploymentRootScope = $PacEnvironment.deploymentRootScope
     $policyDefinitionsScopes = $PacEnvironment.policyDefinitionsScopes
     $duplicateDefinitionTracking = @{}
@@ -35,6 +35,7 @@ function Build-PolicySetPlan {
     foreach ($file in $definitionFiles) {
         $Json = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
 
+        $definitionObject = $null
         try {
             $definitionObject = $Json | ConvertFrom-Json -Depth 100
         }
@@ -47,8 +48,7 @@ function Build-PolicySetPlan {
         $id = "$deploymentRootScope/providers/Microsoft.Authorization/policySetDefinitions/$name"
         $displayName = $definitionProperties.displayName
         $description = $definitionProperties.description
-        $metadata = Get-ClonedObject $definitionProperties.metadata -AsHashTable
-        # $version = $definitionProperties.version
+        $metadata = Get-DeepCloneAsOrderedHashtable $definitionProperties.metadata
         $parameters = $definitionProperties.parameters
         $policyDefinitions = $definitionProperties.policyDefinitions
         $policyDefinitionGroups = $definitionProperties.policyDefinitionGroups
@@ -79,8 +79,14 @@ function Build-PolicySetPlan {
         if ($null -eq $displayName) {
             Write-Error "Policy Set '$name' from file '$($file.Name)' requires a displayName" -ErrorAction Stop
         }
-        if ($null -eq $policyDefinitions -or $policyDefinitions.Count -eq 0) {
-            Write-Error "Policy Set '$displayName' from file '$($file.Name)' requires a policyDefinitions array with at least one entry" -ErrorAction Stop
+        if ($null -eq $policyDefinitions) {
+            Write-Error "Policy Set '$displayName' from file '$($file.Name)' requires a policyDefinitions entry; it is null. Did you misspell policyDefinitions (it is case sensitive)?" -ErrorAction Stop
+        }
+        elseif ($policyDefinitions -isnot [System.Collections.IList]) {
+            Write-Error "Policy Set '$displayName' from file '$($file.Name)' requires a policyDefinitions array; it is not an array." -ErrorAction Stop
+        }
+        elseif ($policyDefinitions.Count -eq 0) {
+            Write-Error "Policy Set '$displayName' from file '$($file.Name)' requires a policyDefinitions array with at least one entry; it has zero entries." -ErrorAction Stop
         }
         if ($duplicateDefinitionTracking.ContainsKey($id)) {
             Write-Error "Duplicate Policy Set with name '$($name)' in '$($duplicateDefinitionTracking[$id])' and '$($file.FullName)'" -ErrorAction Stop
@@ -105,16 +111,15 @@ function Build-PolicySetPlan {
         # Process policyDefinitionGroups
         $policyDefinitionGroupsHashTable = @{}
         if ($null -ne $policyDefinitionGroups) {
-            # Explicitly defined policyDefinitionGroups
-            $null = $policyDefinitionGroups | ForEach-Object {
-                $groupName = $_.name
-                if ($usedPolicyGroupDefinitions.ContainsKey($groupName)) {
-                    # Covered this use of a group name
-                    $usedPolicyGroupDefinitions.Remove($groupName)
-                }
-                if (!$policyDefinitionGroupsHashTable.ContainsKey($groupName)) {
-                    # Ignore duplicates
-                    $policyDefinitionGroupsHashTable.Add($groupName, $_)
+            # Check for group defined as policyDefinitionGroups but not used in policies and add them to a new object
+            # Add each group to the object as Azure allows non used groups
+            $policyDefinitionGroups | ForEach-Object {
+                $policyDefinitionGroupsHashTable.Add($_.name, $_)
+            }
+            # Now check each used group defined by policyDefinitions to make sure that it exists in the policyDefinitionGroups as this causes an error when deploying
+            $usedPolicyGroupDefinitions.Keys | ForEach-Object {
+                if (!$policyDefinitionGroupsHashTable.ContainsKey($_)) {
+                    Write-Error "$($displayName): PolicyDefinitionGroup '$_' not found in policyDefinitionGroups." -ErrorAction Stop
                 }
             }
         }
@@ -177,7 +182,6 @@ function Build-PolicySetPlan {
             displayName            = $displayName
             description            = $description
             metadata               = $metadata
-            # version                = $version
             parameters             = $parameters
             policyDefinitions      = $policyDefinitionsFinal
             policyDefinitionGroups = $policyDefinitionGroupsFinal
@@ -199,8 +203,6 @@ function Build-PolicySetPlan {
             $metadataMatches, $changePacOwnerId = Confirm-MetadataMatches `
                 -ExistingMetadataObj $deployedDefinition.metadata `
                 -DefinedMetadataObj $metadata
-            # $versionMatches = $version -eq $deployedDefinition.version
-            $versionMatches = $true
             $parametersMatch, $incompatible = Confirm-ParametersDefinitionMatch `
                 -ExistingParametersObj $deployedDefinition.parameters `
                 -DefinedParametersObj $parameters
@@ -221,7 +223,7 @@ function Build-PolicySetPlan {
                     break
                 }
             }
-            if (!$containsReplacedPolicy -and $displayNameMatches -and $descriptionMatches -and $metadataMatches -and $versionMatches -and !$changePacOwnerId -and $parametersMatch -and $policyDefinitionsMatch -and $policyDefinitionGroupsMatch) {
+            if (!$containsReplacedPolicy -and $displayNameMatches -and $descriptionMatches -and $metadataMatches -and !$changePacOwnerId -and $parametersMatch -and $policyDefinitionsMatch -and $policyDefinitionGroupsMatch) {
                 # Write-Information "Unchanged '$($displayName)'"
                 $Definitions.numberUnchanged++
             }
@@ -245,9 +247,6 @@ function Build-PolicySetPlan {
                 }
                 if (!$metadataMatches) {
                     $changesStrings += "metadata"
-                }
-                if (!$versionMatches) {
-                    $changesStrings += "version"
                 }
                 if (!$parametersMatch -and !$incompatible) {
                     $changesStrings += "param"

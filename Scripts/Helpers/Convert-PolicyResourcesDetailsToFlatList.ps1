@@ -57,7 +57,7 @@ function Convert-PolicyResourcesDetailsToFlatList {
             $assignment = $detail.assignment
             $properties = Get-PolicyResourceProperties -PolicyResource $assignment
             $assignmentOverrides = $properties.overrides
-            $assignmentParameters = Get-ClonedObject $properties.parameters -AsHashTable
+            $assignmentParameters = Get-DeepCloneAsOrderedHashtable $properties.parameters
         }
 
         foreach ($policyInPolicySetInfo in $detail.policyDefinitions) {
@@ -94,6 +94,8 @@ function Convert-PolicyResourcesDetailsToFlatList {
                     description            = $policyInPolicySetInfo.description
                     policyType             = $policyInPolicySetInfo.policyType
                     category               = $policyInPolicySetInfo.category
+                    version                = $policyInPolicySetInfo.version
+                    isDeprecated           = $policyInPolicySetInfo.isDeprecated
                     effectDefault          = $effectDefault
                     effectValue            = $effectValue
                     ordinal                = 99
