@@ -26,7 +26,7 @@ function Build-PolicyPlan {
     }
 
     $managedDefinitions = $DeployedDefinitions.managed
-    $deleteCandidates = Get-ClonedObject $managedDefinitions -AsHashTable -AsShallowClone
+    $deleteCandidates = $managedDefinitions.Clone()
     $deploymentRootScope = $PacEnvironment.deploymentRootScope
     $duplicateDefinitionTracking = @{}
     $definitionsNew = $Definitions.new
@@ -39,8 +39,9 @@ function Build-PolicyPlan {
 
         # Write-Information "Processing $($definitionFilesSet.Length) Policy files in this parallel execution."
         $Json = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
+        $definitionObject = $null
         try {
-            $definitionObject = $Json | ConvertFrom-Json
+            $definitionObject = ConvertFrom-Json $Json -Depth 100
         }
         catch {
             Write-Error "Assignment JSON file '$($file.FullName)' is not valid." -ErrorAction Stop
@@ -52,12 +53,11 @@ function Build-PolicyPlan {
         $id = "$deploymentRootScope/providers/Microsoft.Authorization/policyDefinitions/$name"
         $displayName = $definitionProperties.displayName
         $description = $definitionProperties.description
-        $metadata = Get-ClonedObject $definitionProperties.metadata -AsHashTable
-        # $version = $definitionProperties.version
+        $metadata = Get-DeepCloneAsOrderedHashtable $definitionProperties.metadata
         $mode = $definitionProperties.mode
         $parameters = $definitionProperties.parameters
         $policyRule = $definitionProperties.policyRule
-        if ($metadata) {
+        if ($null -ne $metadata) {
             $metadata.pacOwnerId = $thisPacOwnerId
         }
         else {
@@ -115,7 +115,6 @@ function Build-PolicyPlan {
             description = $description
             mode        = $mode
             metadata    = $metadata
-            # version     = $version
             parameters  = $parameters
             policyRule  = $policyRule
         }
@@ -125,29 +124,27 @@ function Build-PolicyPlan {
         if ($managedDefinitions.ContainsKey($id)) {
             # Update and replace scenarios
             $deployedDefinition = $managedDefinitions[$id]
-            $deployedDefinition = Get-PolicyResourceProperties -PolicyResource $deployedDefinition
+            $deployedDefinitionProperties = Get-PolicyResourceProperties -PolicyResource $deployedDefinition
 
             # Remove defined Policy entry from deleted hashtable (the hashtable originally contains all custom Policy in the scope)
             $null = $deleteCandidates.Remove($id)
 
             # Check if Policy in Azure is the same as in the JSON file
-            $displayNameMatches = $deployedDefinition.displayName -eq $displayName
-            $descriptionMatches = $deployedDefinition.description -eq $description
-            $modeMatches = $deployedDefinition.mode -eq $definition.Mode
+            $displayNameMatches = $deployedDefinitionProperties.displayName -eq $displayName
+            $descriptionMatches = $deployedDefinitionProperties.description -eq $description
+            $modeMatches = $deployedDefinitionProperties.mode -eq $definition.Mode
             $metadataMatches, $changePacOwnerId = Confirm-MetadataMatches `
-                -ExistingMetadataObj $deployedDefinition.metadata `
+                -ExistingMetadataObj $deployedDefinitionProperties.metadata `
                 -DefinedMetadataObj $metadata
-            # $versionMatches = $version -eq $deployedDefinition.version
-            $versionMatches = $true
             $parametersMatch, $incompatible = Confirm-ParametersDefinitionMatch `
-                -ExistingParametersObj $deployedDefinition.parameters `
+                -ExistingParametersObj $deployedDefinitionProperties.parameters `
                 -DefinedParametersObj $parameters
             $policyRuleMatches = Confirm-ObjectValueEqualityDeep `
-                $deployedDefinition.policyRule `
+                $deployedDefinitionProperties.policyRule `
                 $policyRule
 
             # Update Policy in Azure if necessary
-            if ($displayNameMatches -and $descriptionMatches -and $modeMatches -and $metadataMatches -and !$changePacOwnerId -and $versionMatches -and $parametersMatch -and $policyRuleMatches) {
+            if ($displayNameMatches -and $descriptionMatches -and $modeMatches -and $metadataMatches -and !$changePacOwnerId -and $parametersMatch -and $policyRuleMatches) {
                 # Write-Information "Unchanged '$($displayName)'"
                 $definitionsUnchanged++
             }
@@ -170,9 +167,6 @@ function Build-PolicyPlan {
                 }
                 if (!$metadataMatches) {
                     $changesStrings += "metadata"
-                }
-                if (!$versionMatches) {
-                    $changesStrings += "version"
                 }
                 if (!$parametersMatch -and !$incompatible) {
                     $changesStrings += "param"

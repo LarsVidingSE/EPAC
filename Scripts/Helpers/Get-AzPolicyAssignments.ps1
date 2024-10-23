@@ -20,10 +20,9 @@ function Get-AzPolicyAssignments {
 
     $policyResourcesTable = $DeployedPolicyResources.policyassignments
     $uniquePrincipalIds = @{}
-    foreach ($policyResourceRaw in $policyResources) {
-        $resourceTenantId = $policyResourceRaw.tenantId
+    foreach ($policyResource in $policyResources) {
+        $resourceTenantId = $policyResource.tenantId
         if ($resourceTenantId -in @($null, "", $environmentTenantId)) {
-            $policyResource = Get-ClonedObject $policyResourceRaw -AsHashTable -AsShallowClone
             $id = $policyResource.id
             $testId = $id
             $properties = Get-PolicyResourceProperties $policyResource
@@ -40,6 +39,11 @@ function Get-AzPolicyAssignments {
                 $scope = $resourceIdParts.scope
                 $policyResource.resourceIdParts = $resourceIdParts
                 $policyResource.scope = $scope
+                $policyResource.scopeType = $resourceIdParts.scopeType
+                $policyResource.scopeDisplayName = $ScopeTable.$scope.displayName
+                if ($policyResource.scopeDisplayName -eq $policyResource.tenantId) {
+                    $policyResource.scopeDisplayName = "Tenant Root Group"
+                }
                 $policyResource.pacOwner = Confirm-PacOwner -ThisPacOwnerId $thisPacOwnerId -PolicyResource $policyResource -Scope $scope -ManagedByCounters $policyResourcesTable.counters.managedBy
                 if ($policyResource.identity -and $policyResource.identity.type -ne "None") {
                     $principalId = ""
@@ -47,8 +51,7 @@ function Get-AzPolicyAssignments {
                         $principalId = $policyResource.identity.principalId
                     }
                     else {
-                        $userAssignedIdentityId = $policyResource.identity.userAssignedIdentities.PSObject.Properties.Name
-                        $principalId = $policyResource.identity.userAssignedIdentities.$userAssignedIdentityId.principalId
+                        $principalId = $policyResource.identity.userAssignedIdentities.Values.principalId
                     }
                     $uniquePrincipalIds[$principalId] = $true
                     $policyResourcesTable.counters.withIdentity += 1

@@ -1,9 +1,23 @@
 #Requires -PSEdition Core
 
 Param(
-    [Parameter(Mandatory = $true)] [string] $DefinitionsRootFolder,
+    [Parameter(Mandatory = $true)]
+    [string] $DefinitionsRootFolder,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateScript({ ($_ -eq 'latest') -or ($_.StartsWith("tag/")) }, ErrorMessage = "Allowed values are 'latest' and 'tag/TAG_NAME'")]
+    [string] $GithubRelease = 'latest',
+
+    [Parameter(Mandatory = $false)]
     [ValidateSet('AzureCloud', 'AzureChinaCloud', 'AzureUSGovernment')]
     [string] $CloudEnvironment = 'AzureCloud'
+)
+
+# Verify release exists
+$GithubReleaseTag = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/Azure/Enterprise-Scale/releases/$GithubRelease" -ErrorAction Stop | Select-Object -ExpandProperty tag_name
+$defaultPolicyURIs = @(
+    "https://raw.githubusercontent.com/Azure/Enterprise-Scale/$GithubReleaseTag/eslzArm/managementGroupTemplates/policyDefinitions/policies.json",
+    "https://raw.githubusercontent.com/Azure/Enterprise-Scale/$GithubReleaseTag/eslzArm/managementGroupTemplates/policyDefinitions/initiatives.json"
 )
 
 if ($DefinitionsRootFolder -eq "") {
@@ -20,6 +34,19 @@ if ($DefinitionsRootFolder -eq "") {
     }
 }
 
+try {
+    $telemetryEnabled = (Get-Content $DefinitionsRootFolder/global-settings.jsonc | ConvertFrom-Json).telemetryOptOut
+    $deploymentRootScope = (Get-Content $DefinitionsRootFolder/global-settings.jsonc | ConvertFrom-Json).pacEnvironments[0]
+    if (!($telemetryEnabled)) {
+        Write-Information "Telemetry is enabled"
+        Submit-EPACTelemetry -Cuapid "pid-a5e82cd0-9dda-417b-948c-68ec81596c32" -DeploymentRootScope $deploymentRootScope
+    }
+    else {
+        Write-Information "Telemetry is disabled"
+    }
+}
+catch {}
+
 New-Item -Path "$DefinitionsRootFolder\policyDefinitions" -ItemType Directory -Force -ErrorAction SilentlyContinue
 New-Item -Path "$DefinitionsRootFolder\policyDefinitions\ALZ" -ItemType Directory -Force -ErrorAction SilentlyContinue
 New-Item -Path "$DefinitionsRootFolder\policySetDefinitions" -ItemType Directory -Force -ErrorAction SilentlyContinue
@@ -28,10 +55,6 @@ New-Item -Path "$DefinitionsRootFolder\policyAssignments" -ItemType Directory -F
 New-Item -Path "$DefinitionsRootFolder\policyAssignments\ALZ" -ItemType Directory -Force -ErrorAction SilentlyContinue
 
 . "$PSScriptRoot/../Helpers/ConvertTo-HashTable.ps1"
-
-$defaultPolicyURIs = @(
-    'https://raw.githubusercontent.com/Azure/Enterprise-Scale/main/eslzArm/managementGroupTemplates/policyDefinitions/policies.json'
-)
 
 foreach ($policyUri in $defaultPolicyURIs) {
     $rawContent = (Invoke-WebRequest -Uri $policyUri).Content | ConvertFrom-Json

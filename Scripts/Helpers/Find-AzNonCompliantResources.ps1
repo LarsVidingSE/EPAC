@@ -57,7 +57,7 @@ function Find-AzNonCompliantResources {
         $query = "policyresources | where type == `"microsoft.policyinsights/policystates`" and properties.complianceState == `"NonCompliant`"$($effectFilter)"
     }
     else {
-        $query = "policyresources | where type == `"microsoft.policyinsights/policystates`" and properties.complianceState <> `"Compliant`"$($effectFilter)"
+        $query = "policyresources | where type == `"microsoft.policyinsights/policystates`""
     }
     Write-Information "Az Graph Query: '$query'"
     $result = @() + (Search-AzGraphAllItems -Query $query -ProgressItemName "Policy compliance records")
@@ -81,10 +81,10 @@ function Find-AzNonCompliantResources {
                 $assignmentPacOwner = $assignment.pacOwner
                 $process = $false
                 if ($OnlyCheckManagedAssignments -and $assignmentPacOwner -ne "otherPaC" -and $assignmentPacOwner -ne "unknownOwner") {
-                    # owned by the PaC solution of auto-created by Defender for Cloud (DfC)
+                    # owned by the PaC solution or auto-created by Defender for Cloud (DfC)
                     $process = $true
                 }
-                else {
+                elseif (!$OnlyCheckManagedAssignments) {
                     $process = $true
                 }
                 if ($process) {

@@ -19,9 +19,6 @@
 .PARAMETER DevOpsType
     If set, outputs variables consumable by conditions in a DevOps pipeline. Valid values are '', 'ado' and 'gitlab'.
 
-.PARAMETER VirtualCores
-    Number of virtual cores available to calculate the deployment plan. Defaults to 4.
-
 .EXAMPLE
     .\Build-DeploymentPlans.ps1 -PacEnvironmentSelector "dev"
 
@@ -58,9 +55,7 @@ param (
     [ValidateSet("ado", "gitlab", "")]
     [string] $DevOpsType = "",
 
-    [Parameter(HelpMessage = "Number of virtual cores available to calculate the deployment plan. Defaults to 4. A value of 0 disables parallel processing.")]
-    [Int16] $VirtualCores = 4
-
+    [switch]$SkipNotScopedExemptions
 )
 
 $PSDefaultParameterValues = @{
@@ -76,12 +71,12 @@ Clear-Variable -Name epacInfoStream -Scope global -Force -ErrorAction SilentlyCo
 $InformationPreference = "Continue"
 
 $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRootFolder $DefinitionsRootFolder -OutputFolder $OutputFolder -Interactive $Interactive
-$null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive
+$null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive -DeploymentDefaultContext $pacEnvironment.defaultContext
 
 # Telemetry
 if ($pacEnvironment.telemetryEnabled) {
     Write-Information "Telemetry is enabled"
-    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-3c88f740-55a8-4a96-9fba-30a81b52151a") 
+    Submit-EPACTelemetry -Cuapid "pid-3c88f740-55a8-4a96-9fba-30a81b52151a" -DeploymentRootScope $pacEnvironment.deploymentRootScope
 }
 else {
     Write-Information "Telemetry is disabled"
@@ -177,7 +172,10 @@ elseif (!(Test-Path $policyExemptionsFolderForPacEnvironment -PathType Container
     $exemptionsAreNotManagedMessage = "Policy Exemptions folder '$policyExemptionsFolderForPacEnvironment' for PaC environment $($pacEnvironment.pacSelector) not found. Exemptions not managed by this EPAC instance."
     $exemptionsAreManaged = $false
 }
-if ($BuildExemptionsOnly) {
+$localBuildExemptionsOnly = $BuildExemptionsOnly
+# $localBuildExemptionsOnly = $true
+# $VerbosePreference = "Continue"
+if ($localBuildExemptionsOnly) {
     $null = $warningMessages.Add("Building only the Exemptions plan. Policy, Policy Set, and Assignment plans will not be built.")
     if ($exemptionsAreManaged) {
         $buildSelections.buildPolicyExemptions = $true
@@ -237,14 +235,11 @@ if ($buildSelections.buildAny) {
     $scopeTable = Build-ScopeTableForDeploymentRootScope -PacEnvironment $pacEnvironment
     $skipExemptions = -not $buildSelections.buildPolicyExemptions
     $skipRoleAssignments = -not $buildSelections.buildPolicyAssignments
-    $NoParallelProcessing = $VirtualCores -eq 0
-    # $NoParallelProcessing = $true # for debugging, disable parallel processing
     $deployedPolicyResources = Get-AzPolicyResources `
         -PacEnvironment $pacEnvironment `
         -ScopeTable $scopeTable `
         -SkipExemptions:$skipExemptions `
-        -SkipRoleAssignments:$skipRoleAssignments `
-        -NoParallelProcessing:$NoParallelProcessing
+        -SkipRoleAssignments:$skipRoleAssignments
 
     # Calculate roleDefinitionIds for built-in and inherited Policies
     $readOnlyPolicyDefinitions = $deployedPolicyResources.policydefinitions.readOnly
@@ -314,13 +309,20 @@ if ($buildSelections.buildAny) {
     # Convert Policy and PolicySetDefinition to detailed Info
     $combinedPolicyDetails = Convert-PolicyResourcesToDetails `
         -AllPolicyDefinitions $allDefinitions.policydefinitions `
-        -AllPolicySetDefinitions $allDefinitions.policysetdefinitions `
-        -VirtualCores $VirtualCores
+        -AllPolicySetDefinitions $allDefinitions.policysetdefinitions
 
     # Populate allAssignments
     $deployedPolicyAssignments = $deployedPolicyResources.policyassignments.managed
     foreach ($id  in $deployedPolicyAssignments.Keys) {
         $allAssignments[$id] = $deployedPolicyAssignments.$id
+    }
+
+    #region Process Deprecated
+    $deprecatedHash = @{}
+    foreach ($key in $combinedPolicyDetails.policies.keys) {
+        if ($combinedPolicyDetails.policies.$key.isDeprecated) {
+            $deprecatedHash[$combinedPolicyDetails.policies.$key.name] = $combinedPolicyDetails.policies.$key
+        }
     }
 
     if ($buildSelections.buildPolicyAssignments) {
@@ -335,22 +337,39 @@ if ($buildSelections.buildAny) {
             -AllAssignments $allAssignments `
             -ReplaceDefinitions $replaceDefinitions `
             -PolicyRoleIds $policyRoleIds `
-            -CombinedPolicyDetails $combinedPolicyDetails
+            -CombinedPolicyDetails $combinedPolicyDetails `
+            -DeprecatedHash $deprecatedHash
     }
 
     if ($buildSelections.buildPolicyExemptions) {
         # Process Exemption JSON files
-        Build-ExemptionsPlan `
-            -ExemptionsRootFolder $policyExemptionsFolderForPacEnvironment `
-            -ExemptionsAreNotManagedMessage $exemptionsAreNotManagedMessage `
-            -PacEnvironment $pacEnvironment `
-            -ScopeTable $scopeTable `
-            -AllDefinitions $allDefinitions `
-            -AllAssignments $allAssignments `
-            -CombinedPolicyDetails $combinedPolicyDetails `
-            -Assignments $assignments `
-            -DeployedExemptions $deployedPolicyResources.policyExemptions `
-            -Exemptions $exemptions
+        if ($SkipNotScopedExemptions) {
+            Build-ExemptionsPlan `
+                -ExemptionsRootFolder $policyExemptionsFolderForPacEnvironment `
+                -ExemptionsAreNotManagedMessage $exemptionsAreNotManagedMessage `
+                -PacEnvironment $pacEnvironment `
+                -ScopeTable $scopeTable `
+                -AllDefinitions $allDefinitions `
+                -AllAssignments $allAssignments `
+                -CombinedPolicyDetails $combinedPolicyDetails `
+                -Assignments $assignments `
+                -DeployedExemptions $deployedPolicyResources.policyExemptions `
+                -Exemptions $exemptions `
+                -SkipNotScopedExemptions
+        }
+        else {
+            Build-ExemptionsPlan `
+                -ExemptionsRootFolder $policyExemptionsFolderForPacEnvironment `
+                -ExemptionsAreNotManagedMessage $exemptionsAreNotManagedMessage `
+                -PacEnvironment $pacEnvironment `
+                -ScopeTable $scopeTable `
+                -AllDefinitions $allDefinitions `
+                -AllAssignments $allAssignments `
+                -CombinedPolicyDetails $combinedPolicyDetails `
+                -Assignments $assignments `
+                -DeployedExemptions $deployedPolicyResources.policyExemptions `
+                -Exemptions $exemptions
+        }
     }
 
     Write-Information "==================================================================================================="

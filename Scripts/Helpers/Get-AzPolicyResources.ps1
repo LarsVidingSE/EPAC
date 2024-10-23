@@ -6,8 +6,7 @@ function Get-AzPolicyResources {
 
         [switch] $SkipRoleAssignments,
         [switch] $SkipExemptions,
-        [switch] $CollectAllPolicies,
-        [switch] $NoParallelProcessing
+        [switch] $CollectAllPolicies
     )
 
     $deploymentRootScope = $PacEnvironment.deploymentRootScope
@@ -106,146 +105,40 @@ function Get-AzPolicyResources {
                     "policyExemptions"))
     }
 
-    $deployedPolicyDefinitions = $deployedPolicyResources.policydefinitions
-    $deployedPolicySetDefinitions = $deployedPolicyResources.policysetdefinitions
-    if ($NoParallelProcessing) {
-        foreach ($collectionItem in $collectionList) {
-            switch ($collectionItem) {
-                policyDefinitions {
-                    Get-AzPolicyOrSetDefinitions `
-                        -DefinitionType "policyDefinitions" `
-                        -PolicyResourcesTable $deployedPolicyResources.policydefinitions `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -CollectAllPolicies $collectAllPoliciesLocal
-                    break
-                }
-                policySetDefinitions {
-                    Get-AzPolicyOrSetDefinitions `
-                        -DefinitionType "policySetDefinitions" `
-                        -PolicyResourcesTable $deployedPolicyResources.policysetdefinitions `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -CollectAllPolicies $collectAllPoliciesLocal
-                    break
-                }
-                policyAssignments {
-                    Get-AzPolicyAssignments `
-                        -DeployedPolicyResources $deployedPolicyResources `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -SkipRoleAssignments $skipRoleAssignmentsLocal
-                    break
-                }
-                policyExemptions {
-                    Get-AzPolicyExemptions `
-                        -DeployedPolicyResources $deployedPolicyResources `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable
-                    break
-                }
+    foreach ($collectionItem in $collectionList) {
+        switch ($collectionItem) {
+            policyDefinitions {
+                Get-AzPolicyOrSetDefinitions `
+                    -DefinitionType "policyDefinitions" `
+                    -PolicyResourcesTable $deployedPolicyResources.policydefinitions `
+                    -PacEnvironment $PacEnvironment `
+                    -ScopeTable $ScopeTable `
+                    -CollectAllPolicies $collectAllPoliciesLocal
+                break
             }
-        }
-    }
-    else {
-        $funcGetAzPolicyAssignments = ${function:Get-AzPolicyAssignments}.ToString()
-        $funcGetAzRoleAssignmentsRestMethod = ${function:Get-AzRoleAssignmentsRestMethod}.ToString()
-        $funcGetAzRoleDefinitionsRestMethod = ${function:Get-AzRoleDefinitionsRestMethod}.ToString()
-        $funcGetAzPolicyExemptions = ${function:Get-AzPolicyExemptions}.ToString()
-        $funcGetAzPolicyExemptionsRestMethod = ${function:Get-AzPolicyExemptionsRestMethod}.ToString()
-        $funcGetAzPolicyOrSetDefinitions = ${function:Get-AzPolicyOrSetDefinitions}.ToString()
-        $funcSearchAzGraphAllItems = ${function:Search-AzGraphAllItems}.ToString()
-        $funcDefGetClonedObject = ${function:Get-ClonedObject}.ToString()
-        $funcDefConfirmPolicyResourceExclusions = ${function:Confirm-PolicyResourceExclusions}.ToString()
-        $funcConfirmPacOwner = ${function:Confirm-PacOwner}.ToString()
-        $funcGetPolicyResourceProperties = ${function:Get-PolicyResourceProperties}.ToString()
-        $funcSplitAzPolicyResourceId = ${function:Split-AzPolicyResourceId}.ToString()
-        $funcConvertToHashTable = ${function:ConvertTo-HashTable}.ToString()
-        $funcSetUniqueRoleAssignmentScopes = ${function:Set-UniqueRoleAssignmentScopes}.ToString()
-
-        $collectionList | Foreach-Object -Parallel {
-            # Import dot sourced functions into context
-            if ($null -eq ${function:Get-AzPolicyAssignments}) {
-                ${function:Get-AzPolicyAssignments} = $using:funcGetAzPolicyAssignments
-                ${function:Get-AzRoleAssignmentsRestMethod} = $using:funcGetAzRoleAssignmentsRestMethod
-                ${function:Get-AzRoleDefinitionsRestMethod} = $using:funcGetAzRoleDefinitionsRestMethod
-                ${function:Get-AzPolicyExemptions} = $using:funcGetAzPolicyExemptions
-                ${function:Get-AzPolicyExemptionsRestMethod} = $using:funcGetAzPolicyExemptionsRestMethod
-                ${function:Get-AzPolicyOrSetDefinitions} = $using:funcGetAzPolicyOrSetDefinitions
-                ${function:Search-AzGraphAllItems} = $using:funcSearchAzGraphAllItems
-                ${function:Get-ClonedObject} = $using:funcDefGetClonedObject
-                ${function:Confirm-PolicyResourceExclusions} = $using:funcDefConfirmPolicyResourceExclusions
-                ${function:Confirm-PacOwner} = $using:funcConfirmPacOwner
-                ${function:Get-PolicyResourceProperties} = $using:funcGetPolicyResourceProperties
-                ${function:Split-AzPolicyResourceId} = $using:funcSplitAzPolicyResourceId
-                ${function:ConvertTo-HashTable} = $using:funcConvertToHashTable
-                ${function:Set-UniqueRoleAssignmentScopes} = $using:funcSetUniqueRoleAssignmentScopes
+            policySetDefinitions {
+                Get-AzPolicyOrSetDefinitions `
+                    -DefinitionType "policySetDefinitions" `
+                    -PolicyResourcesTable $deployedPolicyResources.policysetdefinitions `
+                    -PacEnvironment $PacEnvironment `
+                    -ScopeTable $ScopeTable `
+                    -CollectAllPolicies $collectAllPoliciesLocal
+                break
             }
-
-            #Action that will run in Parallel. Reference the current object via $PSItem and bring in outside variables with $USING:varname
-            $PacEnvironment = $using:PacEnvironment
-            $ScopeTable = $using:ScopeTable
-            $skipRoleAssignmentsLocal = $using:skipRoleAssignmentsLocal
-            $deployedPolicyResources = $using:deployedPolicyResources
-            $deployedPolicyDefinitions = $using:deployedPolicyDefinitions
-            $deployedPolicySetDefinitions = $using:deployedPolicySetDefinitions
-            $collectAllPoliciesLocal = $using:collectAllPoliciesLocal
-
-            switch ($_) {
-                policyDefinitions {
-                    Get-AzPolicyOrSetDefinitions `
-                        -DefinitionType "policyDefinitions" `
-                        -PolicyResourcesTable $deployedPolicyDefinitions `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -CollectAllPolicies $collectAllPoliciesLocal
-                    break
-                }
-                policySetDefinitions {
-                    Get-AzPolicyOrSetDefinitions `
-                        -DefinitionType "policySetDefinitions" `
-                        -PolicyResourcesTable $deployedPolicySetDefinitions `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -CollectAllPolicies $collectAllPoliciesLocal
-                    break
-                }
-                policyAssignments {
-                    Get-AzPolicyAssignments `
-                        -DeployedPolicyResources $deployedPolicyResources `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable `
-                        -SkipRoleAssignments $skipRoleAssignmentsLocal
-                    break
-                }
-                policyExemptions {
-                    Get-AzPolicyExemptions `
-                        -DeployedPolicyResources $deployedPolicyResources `
-                        -PacEnvironment $PacEnvironment `
-                        -ScopeTable $ScopeTable
-                    break
-                }
+            policyAssignments {
+                Get-AzPolicyAssignments `
+                    -DeployedPolicyResources $deployedPolicyResources `
+                    -PacEnvironment $PacEnvironment `
+                    -ScopeTable $ScopeTable `
+                    -SkipRoleAssignments $skipRoleAssignmentsLocal
+                break
             }
-        }
-    }
-
-    Write-Information "Processing Exemptions for orphaned assignments"
-    if (-not $skipExemptionsLocal) {
-        $policyExemptionsCounters = $deployedPolicyResources.policyexemptions.counters
-        $managedPolicyExemptionsTable = $deployedPolicyResources.policyexemptions.managed
-        $managedPolicyAssignmentsTable = $deployedPolicyResources.policyassignments.managed
-        # change exemption status if exemption orphaned (policyAssignment with policyAssignmentId does not exist)
-        foreach ($policyResource in $managedPolicyExemptionsTable.Values) {
-            if ($policyResource.assignmentScopeValidation -eq "Default") {
-                $assignmentId = $policyResource.policyAssignmentId
-                $assignmentScopeValidation = $policyResource.assignmentScopeValidation
-                if ($assignmentScopeValidation -eq "Default") {
-                    if (-not $managedPolicyAssignmentsTable.ContainsKey($assignmentId)) {
-                        $policyResource.status = "orphaned-assignment"
-                        $policyExemptionsCounters.orphaned += 1
-                        continue
-                    }
-                }
+            policyExemptions {
+                Get-AzPolicyExemptions `
+                    -DeployedPolicyResources $deployedPolicyResources `
+                    -PacEnvironment $PacEnvironment `
+                    -ScopeTable $ScopeTable
+                break
             }
         }
     }
@@ -302,7 +195,6 @@ function Get-AzPolicyResources {
         Write-Information "        This PaC  = $($managedBy.thisPaC)"
         Write-Information "        Other PaC = $($managedBy.otherPaC)"
         Write-Information "        Unknown   = $($managedBy.unknown)"
-        Write-Information "    Orphaned      = $($counters.orphaned)"
         Write-Information "    Expired       = $($counters.expired)"
         Write-Information "    Excluded      = $($counters.excluded)"
     }
@@ -313,7 +205,7 @@ function Get-AzPolicyResources {
         $numberPrincipalIds = $deployedPolicyResources.numberOfPrincipleIds
         $numberPrincipalIdsWithRoleAssignments = $managedRoleAssignmentsByPrincipalId.Count
         if ($numberPrincipalIds -ne $numberPrincipalIdsWithRoleAssignments) {
-            Write-Warning "Role assignment not retrived for every principal Id ($($numberPrincipalIds) in assignments, $($numberPrincipalIdsWithRoleAssignments) retrieved).`n    This is likely due to a missing permission for the SPN running the pipeline. Please read the pipeline documentation in EPAC.`n    In rare cases, this can happen when a previous role assignment failed." -WarningAction Continue
+            Write-Warning "Role assignment not retrieved for every principal Id ($($numberPrincipalIds) in assignments, $($numberPrincipalIdsWithRoleAssignments) retrieved).`n    This is likely due to a missing permission for the SPN running the pipeline. Please read the pipeline documentation in EPAC.`n    In rare cases, this can happen when a previous role assignment failed." -WarningAction Continue
             $deployedPolicyResources.roleAssignmentsNotRetrieved = $numberPrincipalIdsWithRoleAssignments -eq 0
         }
         Write-Information "Role Assignments:"

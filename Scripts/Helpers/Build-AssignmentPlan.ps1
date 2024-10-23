@@ -10,7 +10,8 @@ function Build-AssignmentPlan {
         [hashtable] $AllAssignments,
         [hashtable] $ReplaceDefinitions,
         [hashtable] $PolicyRoleIds,
-        [hashtable] $CombinedPolicyDetails
+        [hashtable] $CombinedPolicyDetails,
+        [hashtable] $DeprecatedHash
     )
 
     Write-Information "==================================================================================================="
@@ -35,7 +36,7 @@ function Build-AssignmentPlan {
     # Cache role assognments and definitions
     $deployedPolicyAssignments = $deployedPolicyResources.policyassignments.managed
     $deployedRoleAssignmentsByPrincipalId = $DeployedPolicyResources.roleAssignmentsByPrincipalId
-    $deleteCandidates = Get-ClonedObject $deployedPolicyAssignments -AsHashTable -AsShallowClone
+    $deleteCandidates = $deployedPolicyAssignments.Clone()
     $roleDefinitions = $DeployedPolicyResources.roleDefinitions
 
     # Process each assignment file
@@ -50,8 +51,9 @@ function Build-AssignmentPlan {
         }
 
         # Write-Information ""
+        $assignmentObject = $null
         try {
-            $assignmentObject = $Json | ConvertFrom-Json -AsHashtable
+            $assignmentObject = $Json | ConvertFrom-Json -Depth 100 -AsHashtable
         }
         catch {
             Write-Error "Assignment JSON file '$($assignmentFile.FullName)' is not valid." -ErrorAction Stop
@@ -93,7 +95,8 @@ function Build-AssignmentPlan {
             -AssignmentDefinition $rootAssignmentDefinition `
             -CombinedPolicyDetails $CombinedPolicyDetails `
             -PolicyRoleIds $PolicyRoleIds `
-            -RoleDefinitions $roleDefinitions
+            -RoleDefinitions $roleDefinitions `
+            -DeprecatedHash $DeprecatedHash
 
         if ($hasErrors) {
             Write-Error "Assignment definitions content errors" -ErrorAction Stop
@@ -110,6 +113,7 @@ function Build-AssignmentPlan {
             $metadata = $assignment.metadata
             $parameters = $assignment.parameters
             $policyDefinitionId = $assignment.policyDefinitionId
+            $definitionVersion = $assignment.definitionVersion
             $scope = $assignment.scope
             $notScopes = $assignment.notScopes
             $enforcementMode = $assignment.enforcementMode
@@ -124,6 +128,10 @@ function Build-AssignmentPlan {
 
                 $replacedDefinition = $ReplaceDefinitions.ContainsKey($policyDefinitionId)
                 $changedPolicyDefinitionId = $policyDefinitionId -ne $deployedPolicyAssignmentProperties.policyDefinitionId
+                $definitionVersionMatches = $true
+                if ($definitionVersion) {
+                    $definitionVersionMatches = $definitionVersion -eq $deployedPolicyAssignmentProperties.definitionVersion
+                }
                 $displayNameMatches = $displayName -eq $deployedPolicyAssignmentProperties.displayName
                 $descriptionMatches = $description -eq $deployedPolicyAssignmentProperties.description
                 $notScopesMatch = Confirm-ObjectValueEqualityDeep `
@@ -136,7 +144,7 @@ function Build-AssignmentPlan {
                 $metadataMatches, $changePacOwnerId = Confirm-MetadataMatches `
                     -ExistingMetadataObj $deployedPolicyAssignmentProperties.metadata `
                     -DefinedMetadataObj $metadata
-                $enforcementModeMatches = $enforcementMode -eq $deployedPolicyAssignmentProperties.EnforcementMode
+                $enforcementModeMatches = $enforcementMode -eq $deployedPolicyAssignmentProperties.enforcementMode
                 $nonComplianceMessagesMatches = Confirm-ObjectValueEqualityDeep `
                     $deployedPolicyAssignmentProperties.nonComplianceMessages `
                     $nonComplianceMessages
@@ -162,9 +170,8 @@ function Build-AssignmentPlan {
                 }
 
                 # Check if Policy assignment in Azure is the same as in the JSON file
-
                 $changesStrings = @()
-                $match = $displayNameMatches -and $descriptionMatches -and $parametersMatch -and $metadataMatches -and !$changePacOwnerId `
+                $match = $displayNameMatches -and $descriptionMatches -and $parametersMatch -and $metadataMatches -and $definitionVersionMatches -and !$changePacOwnerId `
                     -and $enforcementModeMatches -and $notScopesMatch -and $nonComplianceMessagesMatches -and $overridesMatch -and $resourceSelectorsMatch -and !$identityStatus.replaced
                 if ($match) {
                     # no Assignment properties changed
@@ -189,6 +196,9 @@ function Build-AssignmentPlan {
                         }
                         $changesStrings += ($identityStatus.changedIdentityStrings)
                     }
+                    elseif ($identityStatus.requiresRoleChanges) {
+                        $changesStrings += ($identityStatus.changedIdentityStrings)
+                    }
 
                     if (!$displayNameMatches) {
                         $changesStrings += "displayName"
@@ -201,6 +211,9 @@ function Build-AssignmentPlan {
                     }
                     if (!$metadataMatches) {
                         $changesStrings += "metadata"
+                    }
+                    if (!$definitionVersionMatches) {
+                        $changesStrings += "definitionVersion"
                     }
                     if (!$parametersMatch) {
                         $changesStrings += "parameters"
@@ -281,7 +294,7 @@ function Build-AssignmentPlan {
                     -ReplacedAssignment $false `
                     -DeployedRoleAssignmentsByPrincipalId $deployedRoleAssignmentsByPrincipalId
                 if ($identityStatus.requiresRoleChanges) {
-                    $null = $RoleAssignments.removed.AddRange($identityStatus.added)
+                    $null = $RoleAssignments.removed.AddRange($identityStatus.removed)
                     $RoleAssignments.numberOfChanges += ($identityStatus.numberOfChanges)
                 }
                 if ($identityStatus.isUserAssigned) {

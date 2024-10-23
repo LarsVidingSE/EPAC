@@ -56,12 +56,12 @@ Clear-Variable -Name epacInfoStream -Scope global -Force -ErrorAction SilentlyCo
 
 $InformationPreference = "Continue"
 $pacEnvironment = Select-PacEnvironment $PacEnvironmentSelector -DefinitionsRootFolder $DefinitionsRootFolder -InputFolder $InputFolder  -Interactive $Interactive
-$null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive
+$null = Set-AzCloudTenantSubscription -Cloud $pacEnvironment.cloud -TenantId $pacEnvironment.tenantId -Interactive $pacEnvironment.interactive -DeploymentDefaultContext $pacEnvironment.defaultContext
 
 # Telemetry
 if ($pacEnvironment.telemetryEnabled) {
     Write-Information "Telemetry is enabled"
-    [Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("pid-cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c") 
+    Submit-EPACTelemetry -Cuapid "pid-cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c" -DeploymentRootScope $pacEnvironment.deploymentRootScope
 }
 else {
     Write-Information "Telemetry is disabled"

@@ -1,8 +1,7 @@
 # Desired State Management
 
-!!! danger "Caution"
-
-    EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will delete any Policy resources not defined in the EPAC repo.
+> [!CAUTION]
+> EPAC is a true desired state deployment technology. It takes possession of all Policy Resources at the `deploymentRootScope` and its children. It will delete any Policy resources not defined in the EPAC repo.
 
 Desired State strategy enables you to adjust the default behavior to fit more complex scenarios, including shared responsibility scenarios. The use cases below show the archetypical use cases. For complex scenarios it is possible to combine multiple use cases.
 
@@ -15,11 +14,13 @@ Desired State strategy enables you to adjust the default behavior to fit more co
     - `full`: EPAC manages all Policy resources in the `deploymentRootScope` and its children. EPAC deletes any Policy resources not defined in the EPAC repo.
     - `ownedOnly`: EPAC manages only Policy resources defined in the EPAC repo. EPAC does not delete any Policy resources not defined in the EPAC repo.
   - `keepDfcSecurityAssignments`: It is recommended that Security and Compliance Initiatives are managed at management group levels with EPAC. Please read [Managing Defender for Cloud Assignments](settings-dfc-assignments.md).
+
 - Optional:
   - `excludedScopes`: An array of scopes to exclude from management by EPAC. The default is an empty array. Wild cards are supported.
   - `excludedPolicyDefinitions`: An array of Policy Definitions to exclude from management by EPAC. The default is an empty array. Wild cards are supported.
   - `excludedPolicySetDefinitions`: An array of Policy Set Definitions to exclude from management by EPAC. The default is an empty array. Wild cards are supported.
   - `excludedPolicyAssignments`: An array of Policy Assignments to exclude from management by EPAC. The default is an empty array. Wild cards are supported.
+  - `doNotDisableDeprecatedPolicies`: Automatically set deprecated policies' policy effect to "Disabled". This setting can be used to override that behavior by setting it to `true`. Default is `false`.
 
 The following example shows the `desiredState` element with all properties set:
 
@@ -27,6 +28,7 @@ The following example shows the `desiredState` element with all properties set:
 "desiredState": {
     "strategy": "full",
     "keepDfcSecurityAssignments": false,
+    "doNotDisableDeprecatedPolicies": false,
     "excludedScopes": [],
     "excludedPolicyDefinitions": [],
     "excludedPolicySetDefinitions": [],
@@ -57,9 +59,8 @@ After short transitioning period (weeks), it is recommended to set `desiredState
 
 ## Exclude Resource Groups
 
-!!! warning "Warning - Breaking Change in v10.0.0"
-
-    Policy Assignments at resource groups are **managed** by EPAC. The element `includeResourceGroups` has been deprecated and removed.
+> [!WARNING]
+> **Breaking Change in v10.0.0:** Policy Assignments at resource groups are **managed** by EPAC. The element `includeResourceGroups` has been deprecated and removed.
 
 To exclude resource groups from management by EPAC, add an `excludedScopes` array element with a wild card for the subscription and resourceGroups to `desiredState`. 
 
@@ -111,9 +112,8 @@ The hierarchical model allows a central team to manage the commonality while giv
 
 This is managed identical to use case 3.
 
-!!! danger "Caution"
-
-    Previously, it was possible for a solution at a child scope to inherit Policy definitions form EPAC-A. This feature has been removed in v10.0.0 since it was not possible to manage the dependencies between Policy and Policy Set definitions and Policy Assignments correctly.
+> [!CAUTION]
+> Previously, it was possible for a solution at a child scope to inherit Policy definitions form EPAC-A. This feature has been removed in v10.0.0 since it was not possible to manage the dependencies between Policy and Policy Set definitions and Policy Assignments correctly.
 >
 > To replicate the previous functionality, copy/replicate the custom Policy and Policy Set definitions files from EPAC-A repo to EPAC-C repo.
 
@@ -151,6 +151,8 @@ You can exclude any combination of `excludedScopes`, `excludedPolicyDefinitions`
 ```json
 "desiredState": {
     "strategy": "full",
+    "keepDfcSecurityAssignments": false,
+    "doNotDisableDeprecatedPolicies": false,
     "excludedScopes": [ // Management Groups, Subscriptions, Resource Groups
         "/providers/Microsoft.Management/managementGroups/mg-policy-as-code/childScope"
     ],

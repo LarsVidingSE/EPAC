@@ -1,10 +1,9 @@
-function Out-PolicySetsDocumentationToFile {
+function Out-DocumentationForPolicySets {
     [CmdletBinding()]
     param (
         [string] $OutputPath,
-        [string] $FileNameStem,
         [switch] $WindowsNewLineCells,
-        [string] $Title,
+        $DocumentationSpecification,
         [array] $ItemList,
         [array] $EnvironmentColumnsInCsv,
         [hashtable] $PolicySetDetails,
@@ -12,44 +11,73 @@ function Out-PolicySetsDocumentationToFile {
         [switch] $IncludeManualPolicies
     )
 
-    Write-Information "Generating Policy Set documentation for '$Title', files '$FileNameStem'."
+    $fileNameStem = $DocumentationSpecification.fileNameStem
+    $title = $DocumentationSpecification.title
+    $environmentColumnsInCsv = $DocumentationSpecification.environmentColumnsInCsv
+
+
+    Write-Information "Generating Policy Set documentation for '$title', files '$FileNameStem'."
 
     #region Markdown
 
     [System.Collections.Generic.List[string]] $allLines = [System.Collections.Generic.List[string]]::new()
-    [System.Collections.Generic.List[string]] $headerAndToc = [System.Collections.Generic.List[string]]::new()
-    [System.Collections.Generic.List[string]] $body = [System.Collections.Generic.List[string]]::new()
+    $leadingHeadingHashtag = "#"
+    if ($DocumentationSpecification.markdownAdoWiki) {
+        $leadingHeadingHashtag = ""
+        $null = $allLines.Add("[[_TOC_]]`n")
+    }
+    else {
+        $null = $allLines.Add("# $title`n")
+        if ($DocumentationSpecification.markdownAddToc) {
+            $null = $allLines.Add("[[_TOC_]]`n")
+        }
+    }
+    $null = $allLines.Add("Auto-generated Policy effect documentation for PolicySets grouped by Effect and sorted by Policy category and Policy display name.")
+    $inTableAfterDisplayNameBreak = "<br/>"
+    $inTableBreak = "<br/>"
+    if ($DocumentationSpecification.markdownNoEmbeddedHtml) {
+        $inTableAfterDisplayNameBreak = ": "
+        $inTableBreak = ", "
+    }
 
-    $null = $headerAndToc.Add("# $Title`n")
-    $null = $headerAndToc.Add("Auto-generated Policy effect documentation for PolicySets grouped by Effect and sorted by Policy category and Policy display name.`n")
-    $null = $headerAndToc.Add("## Table of contents`n")
-
-    $null = $headerAndToc.Add("- [PolicySets](#policySets)")
-    $null = $body.Add("`n## <a id=`"policySets`"></a>PolicySets`n")
+    #region Policy Set List
     $addedTableHeader = ""
     $addedTableDivider = ""
+    $addedTableDividerParameters = ""
+    $null = $allLines.Add("`n$leadingHeadingHashtag# Policy Set (Initiative) List`n")
     foreach ($item in $ItemList) {
         $shortName = $item.shortName
         $policySetId = $item.policySetId
         $policySetDetail = $PolicySetDetails.$policySetId
-        $null = $body.Add("### $($shortName)`n")
-        $null = $body.Add("- Display name: $($policySetDetail.displayName)")
-        $null = $body.Add("- Type: $($policySetDetail.policyType)")
-        $null = $body.Add("- Category: $($policySetDetail.category)`n")
-        $null = $body.Add("$($policySetDetail.description)`n")
+        $policySetDisplayName = $policySetDetail.displayName -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+        $policySetDescription = $policySetDetail.description -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+        $null = $allLines.Add("$leadingHeadingHashtag## $($shortName)`n")
+        $null = $allLines.Add("- Display name: $($policySetDisplayName)`n")
+        $null = $allLines.Add("- Type: $($policySetDetail.policyType)")
+        $null = $allLines.Add("- Category: $($policySetDetail.category)`n")
+        $null = $allLines.Add("$($policySetDescription)`n")
 
         $addedTableHeader += " $shortName |"
-        $addedTableDivider += " :-------- |"
+        $addedTableDivider += " :-------: |"
+        $addedTableDividerParameters += " :------- |"
     }
-    $null = $headerAndToc.Add("- [Policies](#policies)")
-    $null = $body.Add("`n<br/>`n`n## <a id='policies'></a>Policies`n`n<br/>`n")
-    $null = $body.Add("| Category | Policy |$addedTableHeader")
-    $null = $body.Add("| :------- | :----- |$addedTableDivider")
+    #endregion Policy Set List
+
+    #region Policy Effects
+    if ($DocumentationSpecification.markdownIncludeComplianceGroupNames) {
+        $null = $allLines.Add("`n$leadingHeadingHashtag# Policy Effects by Policy`n")
+        $null = $allLines.Add("| Category | Policy | Compliance |$addedTableHeader")
+        $null = $allLines.Add("| :------- | :----- | :----------|$addedTableDivider")
+    }
+    else {
+        $null = $allLines.Add("`n$leadingHeadingHashtag# Policy Effects`n")
+        $null = $allLines.Add("| Category | Policy |$addedTableHeader")
+        $null = $allLines.Add("| :------- | :----- |$addedTableDivider")
+    }
 
     $FlatPolicyList.Values | Sort-Object -Property { $_.category }, { $_.displayName } | ForEach-Object -Process {
         $policySetList = $_.policySetList
         $addedEffectColumns = ""
-        $addedRows = ""
         $effectValue = "Unknown"
         if ($null -ne $_.effectValue) {
             $effectValue = $_.effectValue
@@ -59,7 +87,7 @@ function Out-PolicySetsDocumentationToFile {
         }
 
         if ($effectValue -ne "Manual" -or $IncludeManualPolicies) {
-
+            $groupNamesList = [System.Collections.ArrayList]::new()
             foreach ($item in $ItemList) {
                 $shortName = $item.shortName
                 if ($policySetList.ContainsKey($shortName)) {
@@ -68,40 +96,129 @@ function Out-PolicySetsDocumentationToFile {
                     $effectAllowedValues = $perPolicySet.effectAllowedValues
                     $text = Convert-EffectToMarkdownString `
                         -Effect $effectValue `
-                        -AllowedValues $effectAllowedValues
+                        -AllowedValues $effectAllowedValues 1 `
+                        -inTableBreak $inTableBreak
                     $addedEffectColumns += " $text |"
 
                     [array] $groupNames = $perPolicySet.groupNames
-                    $parameters = $perPolicySet.parameters
-                    if ($parameters.psbase.Count -gt 0 -or $groupNames.Count -gt 0) {
-                        $addedRows += "<br/>*$($perPolicySet.displayName):*"
-                        $text = Convert-ParametersToString -Parameters $parameters -OutputType "markdown"
-                        $addedRows += $text
-                        foreach ($groupName in $groupNames) {
-                            $addedRows += "<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$groupName"
-                        }
+                    if ($groupNames.Count -gt 0) {
+                        $groupNamesList.AddRange($groupNames)
                     }
                 }
                 else {
                     $addedEffectColumns += "  |"
                 }
             }
-            $referencePathString = ""
-            if ($_.referencePath -ne "") {
-                $referencePathString = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;referencePath: ``$($_.referencePath)``<br/>"
+            $complianceText = ""
+            if ($DocumentationSpecification.markdownIncludeComplianceGroupNames) {
+                if ($groupNamesList.Count -gt 0) {
+                    $groupNamesList = $groupNamesList | Sort-Object -Unique
+                    $complianceText = "| $($groupNamesList -join $inTableBreak) "
+                }
+                else {
+                    $complianceText = "| "
+                }
             }
-            $null = $body.Add("| $($_.category) | **$($_.displayName)**<br/>$($referencePathString)$($_.description)$($addedRows) |$addedEffectColumns")
+            $policyDisplayName = $_.displayName -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+            $policyDescription = $_.description -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+            $null = $allLines.Add("| $($_.category) | **$($policyDisplayName)**$($inTableAfterDisplayNameBreak)$($policyDescription) $complianceText|$addedEffectColumns")
         }
         else {
             Write-Verbose "Skipping manual policy: $($_.name)"
         }
     }
-    $null = $headerAndToc.Add("`n<br/>")
-    $null = $allLines.AddRange($headerAndToc)
-    $null = $allLines.AddRange($body)
+    #endregion Policy Effects
 
+    #region Policy Parameters
+    if ($DocumentationSpecification.markdownSuppressParameterSection) {
+        Write-Verbose "Suppressing Parameters section in Markdown"
+    }
+    else {
+        $null = $allLines.Add("`n$leadingHeadingHashtag# Policy Parameters by Policy`n")
+        $null = $allLines.Add("| Category | Policy |$addedTableHeader")
+        $null = $allLines.Add("| :------- | :----- |$addedTableDividerParameters")
+
+        $FlatPolicyList.Values | Sort-Object -Property { $_.category }, { $_.displayName } | ForEach-Object -Process {
+            $policySetList = $_.policySetList
+            $addedParametersColumns = ""
+            $effectValue = "Unknown"
+            if ($null -ne $_.effectValue) {
+                $effectValue = $_.effectValue
+            }
+            else {
+                $effectValue = $_.effectDefault
+            }
+
+            if ($effectValue -ne "Manual" -or $IncludeManualPolicies) {
+                $hasParameters = $false
+                foreach ($item in $ItemList) {
+                    $shortName = $item.shortName
+                    if ($policySetList.ContainsKey($shortName)) {
+                        $perPolicySet = $policySetList.$shortName
+                        $parameters = $perPolicySet.parameters
+                        $text = ""
+                        $notFirst = $false
+                        foreach ($parameterName in $parameters.Keys) {
+                            $parameter = $parameters.$parameterName
+                            if (-not $parameter.isEffect) {
+                                $hasParameters = $true
+                                $markdownMaxParameterLength = 42
+                                if ($DocumentationSpecification.markdownMaxParameterLength) {
+                                    $markdownMaxParameterLength = $DocumentationSpecification.markdownMaxParameterLength
+                                    if ($markdownMaxParameterLength -lt 16) {
+                                        Write-Error "markdownMaxParameterLength must be at least 16; it is $markdownMaxParameterLength" -ErrorAction Stop
+                                    }
+                                }
+                                if ($parameterName.length -gt $markdownMaxParameterLength) {
+                                    $parameterName = $parameterName.substring(0, $markdownMaxParameterLength - 3) + "..."
+                                }
+                                $value = $parameter.value
+                                if ($notFirst) {
+                                    $text += $inTableBreak
+                                }
+                                else {
+                                    $notFirst = $true
+                                }
+                                if ($null -eq $value) {
+                                    $value = $parameter.defaultValue
+                                    if ($null -eq $value) {
+                                        $value = "null"
+                                    }
+                                }
+                                $valueString = ""
+                                if ($value -is [string]) {
+                                    $valueString = $value
+                                }
+                                else {
+                                    $valueString = ConvertTo-Json $value -Depth 100 -Compress
+                                }
+                                if ($valueString.length -gt $markdownMaxParameterLength) {
+                                    $valueString = $valueString.substring(0, $markdownMaxParameterLength - 3) + "..."
+                                }
+                                $text += "$($parameterName) = **``$valueString``**"
+                            }
+                        }
+                        $addedParametersColumns += " $text |"
+                    }
+                    else {
+                        $addedParametersColumns += "  |"
+                    }
+                }
+                if ($hasParameters) {
+                    $policyDisplayName = $_.displayName -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+                    $policyDescription = $_.description -replace "\n\r", " " -replace "\n", " " -replace "\r", " "
+                    $null = $allLines.Add("| $($_.category) | **$($policyDisplayName)**$($inTableAfterDisplayNameBreak)$($policyDescription) |$addedParametersColumns")
+                }
+            }
+            else {
+                Write-Verbose "Skipping manual policy: $($_.name)"
+            }
+        }
+    }
+    #endregion Policy Parameters
+    
     # Output file
-    $outputFilePath = "$($OutputPath -replace '[/\\]$','')/$FileNameStem.md"
+    $outputFilePath = "$($OutputPath -replace '[/\\]$','')/$fileNameStem.md"
     $allLines | Out-File $outputFilePath -Force
 
     #endregion Markdown

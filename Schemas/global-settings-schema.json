@@ -48,6 +48,12 @@
                         "deploymentRootScope": {
                             "type": "string"
                         },
+                        "skipResourceValidationForExemptions": {
+                            "type": "boolean"
+                        },
+                        "defaultContext": {
+                            "type": "string"
+                        },
                         "globalNotScopes": {
                             "type": "array",
                             "items": [
@@ -67,6 +73,9 @@
                                     ]
                                 },
                                 "keepDfcSecurityAssignments": {
+                                    "type": "boolean"
+                                },
+                                "doNotDisableDeprecatedPolicies": {
                                     "type": "boolean"
                                 },
                                 "excludedScopes": {

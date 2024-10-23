@@ -8,7 +8,6 @@ steps:
   - checkout: self
   - pwsh: |
       Install-Module EnterprisePolicyAsCode -Force
-      Install-Module Az.ResourceGraph -Force
   - task: AzurePowerShell@5
     name: PolicyRemediation
     displayName: Policy Remediation
@@ -18,4 +17,4 @@ steps:
       pwsh: true
       ScriptType: InlineScript
       Inline: |
-        Create-AzRemediationTasks -PacEnvironmentSelector ${{ parameters.pacEnvironmentSelector }} -OnlyCheckManagedAssignments -Interactive $false -InformationAction Continue
+        New-AzRemediationTasks -PacEnvironmentSelector ${{ parameters.pacEnvironmentSelector }} -OnlyCheckManagedAssignments -Interactive $false -InformationAction Continue
