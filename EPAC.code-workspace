@@ -25,5 +25,7 @@
 			"path": "../../../AzDevOpsRepos/EPAC/AzADServicePrincipalInsights"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"powershell.cwd": "EPAC-Prod"
+	}
 }
